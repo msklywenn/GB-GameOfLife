@@ -93,15 +93,11 @@ Start:
 	ld de, DefaultMap
 	ld bc, 32 * 32
 	call MemoryCopy
+
+	; display bg 9800
+	ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9800
+	ld [rLCDC], a
 	
-	; enable screen with background
-	;ld a, LCDCF_ON | LCDCF_BGON
-	;ld [rLCDC], a
-
-	; disable v-blank interrupt, enable lcd stat interrupt
-	;ld a, IEF_LCDC
-	;ld [rIE], a
-
 	; enable h-blank interrupt in lcd stat
 	ld a, STATF_MODE00
 	ld [rSTAT], a
@@ -121,9 +117,11 @@ Start:
 
 .mainloop
 
-	; disable screen
-	xor a
-	ld [rLCDC], a
+	; disable v-blank interrupt, enable lcd stat interrupt
+	di
+	ld a, IEF_LCDC
+	ld [rIE], a
+	ei
 
 	; handle top left corner
 	ld bc, TopLeftCorner
@@ -285,23 +283,13 @@ Start:
 	ld [NewPointer], a
 	ld [OldPointer], a
 	
-.waitPressA
+	; enable v-blank interrupt, disable lcd stat interrupt
+	di
+	ld a, IEF_VBLANK
+	ld [rIE], a
+	ei
+	
 	halt
-	halt
-	halt
-	;halt
-	;halt
-	;halt
-	;halt
-	;ld a, P1F_4
-	;ld [rP1], a
-	;ld a, [rP1]
-	;ld a, [rP1]
-	;ld a, [rP1]
-	;ld a, [rP1]
-	;cpl
-	;and a, 1
-	;jr z, .waitPressA
 
 	jp .mainloop
 
@@ -340,6 +328,7 @@ Conway:
 	add hl, de
 	
 	; load neighbor
+	halt
 	ld a, [hl]
 	
 	; check neighbor is alive
@@ -361,6 +350,7 @@ Conway:
 	ld l, a
 	
 	; load status
+	halt
 	ld a, [hl]
 	
 	; check if alive
