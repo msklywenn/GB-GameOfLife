@@ -1,8 +1,20 @@
 INCLUDE "hardware.inc"
-INCLUDE "utils.inc"
 
 _VRAM_BG_TILES EQU $9000
-_SCREEN_BYTES EQU SCRN_X_B * SCRN_Y_B
+
+SECTION "Memory Copy", ROM0
+; hl = destination
+; de = source
+; bc = count
+MemoryCopy:
+	ld a, [de]
+	ld [hl+], a
+	inc de
+	dec bc
+	ld a, b
+	or c
+	jr nz, MemoryCopy
+	ret
 
 SECTION "V-Blank Interrupt Handler", ROM0[$40]
 VBlankInterruptHandler:
@@ -56,9 +68,20 @@ Start:
 	ld [rBGP], a
 	
 	; load tiles
-	MemCopy _VRAM_BG_TILES, Tile0, 16
-	MemCopy _VRAM_BG_TILES + 16, Tile1, 16
-	MemCopy _VRAM_BG_TILES + 32, Tile2, 16
+	ld hl, _VRAM_BG_TILES
+	ld de, Tile0
+	ld bc, 16
+	call MemoryCopy
+
+	ld hl, _VRAM_BG_TILES + 16
+	ld de, Tile1
+	ld bc, 16
+	call MemoryCopy
+
+	ld hl, _VRAM_BG_TILES + 32
+	ld de, Tile2
+	ld bc, 16
+	call MemoryCopy
 	
 	; set scrolling to (0, 0)
 	xor a
@@ -66,7 +89,10 @@ Start:
 	ld [rSCX], a
 	
 	; init ram
-	MemCopy _SCRN0, DefaultMap, 32 * 32
+	ld hl, _SCRN0
+	ld de, DefaultMap
+	ld bc, 32 * 32
+	call MemoryCopy
 	
 	; enable screen with background
 	;ld a, LCDCF_ON | LCDCF_BGON
@@ -278,7 +304,8 @@ Start:
 	;jr z, .waitPressA
 
 	jp .mainloop
-	
+
+SECTION "Table based conway's game of life step", ROM0	
 	; bc = pointer to neighbor offsets
 	; destroys all registers
 Conway:
@@ -296,7 +323,7 @@ Conway:
 	ld d, a
 	
 	; check end of list
-	or e ; (a still contains d)
+	or a, e ; (a still contains d)
 	jp z, .decide
 	
 	; advance bc to next neighbor
