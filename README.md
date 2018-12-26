@@ -22,3 +22,5 @@ two tilemaps, so we can double buffer. Second, the v-blank is not
 the only time where you can write to Video RAM, you can also write
 in between the PPU rendering lines! That requires synchronising code
 with rendering but it should be doable.
+
+![Animated GIF recorded with BGB](https://media.giphy.com/media/4Zf4UukPqZzAYWIqye/giphy.gif)
