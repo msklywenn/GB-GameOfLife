@@ -1,0 +1,74 @@
+int[][] data = new int[2][20 * 18];
+int compute = 1;
+int display = 0;
+
+void setup() {
+    background(255);
+    size(300, 300);
+    frameRate(6);
+    fill(0);
+    noStroke();
+    data[display][5 + 50] = 1;
+    data[display][6 + 70] = 1;
+    data[display][4 + 90] = 1;
+    data[display][5 + 90] = 1;
+    data[display][6 + 90] = 1;
+} 
+
+void draw() {
+    // corners
+    conway(0, 1, 21, 20, 39, 19, 359, 340, 341); // top left
+    conway(19, -19, 1, 20, 19, -1, 339, 340, 321); // top right
+    conway(340, 1, -339, -340, -321, 19, -1, -20, -19); // bottom left
+    conway(359, -19, -359, -340, -341, -1, -21, -20, -39); // bottom right
+    
+    // border rows
+    for (int i = 1; i < 19; i++)
+    {
+        conway(i, 1, -1, 20, 19, 21, 340, 339, 341); // top
+        conway(i + 340, -1, 1, -340, -339, -341, -20, -21, -19); // bot
+    }
+    
+    // border columns
+    for (int i = 20; i < 340; i += 20)
+    {
+        conway(i, 1, 21, 20, 39, 19, -1, -20, -19); // left
+        conway(i + 19, -19, 1, 20, 19, -1, -21, -20, -39); // right
+    }
+    
+    // inner
+    for (int y = 20; y < 340; y += 20)
+        for (int x = 1; x < 19; x++)
+        {
+            int i = x + y;
+            conway(i, 1, -1, 20, 21, 19, -20, -21, -19);
+        }       
+  
+    //fill(255, 16);
+    //rect(0, 0, 20*10+10, 18*10+10);
+    background(255);
+
+    fill(0);
+    for (int i = 0; i < 20*18; i++)
+    {
+        if (data[display][i] == 1)
+        {
+            int x = i % 20;
+            int y = (int)(i / 20);
+            ellipse(x * 10 + 5, y * 10 + 5, 5, 5);
+        }
+    }
+    compute = 1 - compute;
+    display = 1 - display;
+}
+
+void conway(int idx, int c0, int c1, int c2, int c3, int c4, int c5, int c6, int c7)
+{
+    int count = data[display][idx+c0] + data[display][idx+c1] + data[display][idx+c2]
+		+ data[display][idx+c3] + data[display][idx+c7] + data[display][idx+c6]
+		+ data[display][idx+c5] + data[display][idx+c4];
+    if (data[display][idx] == 1)
+        data[compute][idx] = (count == 2 || count == 3) ? 1 : 0;
+    else
+        data[compute][idx] = count == 3 ? 1 : 0;
+}
