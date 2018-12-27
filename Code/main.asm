@@ -54,6 +54,28 @@ Start:
 	; shut sound off
 	ld [rNR52], a
 
+	; set old pointer to buffer0
+	ld a, HIGH(Buffer0)
+	ldh [Old + 1], a
+
+	; set new pointer to buffer1
+	ld a, HIGH(Buffer1)
+	ldh [New + 1], a
+
+	; set rendered to buffer1 also
+	ldh [Rendered + 1], a
+	
+	; set video pointer to second tilemap
+	ld a, HIGH(_SCRN1)
+	ldh [Video + 1], a
+
+	; set low byte of pointers to 0 (all buffers are aligned)
+	xor a
+	ldh [Old + 0], a
+	ldh [New + 0], a
+	ldh [Rendered + 0], a
+	ldh [Video + 0], a
+
 	; enable v-blank interrupt
 	ld a, IEF_VBLANK
 	ld [rIE], a
@@ -81,10 +103,10 @@ Start:
 	ld bc, TilesEnd - Tiles
 	call MemoryCopy
 	
-	; set scrolling to (32, 16)
-	ld a, 32
+	; set scrolling to (-16, -8)
+	ld a, -16
 	ld [rSCX], a
-	ld a, 16
+	ld a, -8
 	ld [rSCY], a
 	
 	; clear screen (both buffers)
@@ -106,29 +128,12 @@ Start:
 	; enable h-blank interrupt in lcd stat
 	ld a, STATF_MODE00
 	ld [rSTAT], a
-
-	; set old pointer to buffer0
-	ld a, HIGH(Buffer0)
-	ld [Old + 1], a
-
-	; set new pointer to buffer1
-	ld a, HIGH(Buffer1)
-	ld [New + 1], a
-	
-	; shet video pointer to second tilemap
-	ld a, HIGH(_SCRN1)
-	ldh [Video + 1], a
-
-	; set low byte of pointers to 0 (start of buffer is aligned)
-	xor a
-	ld [Old + 0], a
-	ld [New + 0], a
 	
 .mainloop
 
 	; enable v-blank and lcd stat interrupt for h-blank
 	di
-	ld a, IEF_VBLANK | IEF_LCDC
+	ld a, IEF_VBLANK ;| IEF_LCDC
 	ld [rIE], a
 	ei
 
@@ -218,9 +223,9 @@ Start:
 	ld hl, Old
 	inc [hl]
 	jr nz, .nocarry
-		ld hl, New + 1
+		inc hl ; old + 1
 		inc [hl]
-		ld hl, Old + 1
+		ld hl, New + 1
 		inc [hl]
 .nocarry
 
@@ -264,6 +269,12 @@ Start:
 .bottomright
 	ld bc, BottomRightCorner
 	call Conway
+	
+	; increment new pointer to first byte after buffer
+	ld hl, New
+	inc [hl]
+	inc hl
+	inc [hl]
 
 	; enable only v-blank interrupt
 	di
@@ -271,17 +282,31 @@ Start:
 	ld [rIE], a
 	ei
 
-	; wait v-blank
+	; wait end of rendering
+.waitRender
 	halt
+	; compare high byte of rendered and new pointers
+	ldh a, [Rendered + 1]
+	ld b, a
+	ldh a, [New + 1]
+	cp a, b
+	jr nz, .waitRender
+	; compare low byte of rendered and new pointers
+	ldh a, [Rendered]
+	ld b, a
+	ldh a, [New]
+	cp a, b
+	jr nz, .waitRender
 
 	; swap pointers and display bg that has just been filled
-	ld a, [New + 1]
+	ldh a, [New + 1]
 	cp a, HIGH(Buffer1)
-	jr c, .newToBuffer1
+	jr z, .newToBuffer1
 		ld a, HIGH(Buffer0)
-		ld [New + 1], a
+		ldh [New + 1], a
+		ldh [Rendered + 1], a
 		ld a, HIGH(Buffer1)
-		ld [Old + 1], a
+		ldh [Old + 1], a
 		ld a, HIGH(_SCRN0)
 		ldh [Video + 1], a
 
@@ -292,9 +317,10 @@ Start:
 	jr .resetlow
 .newToBuffer1
 		ld a, HIGH(Buffer1)
-		ld [New + 1], a
+		ldh [New + 1], a
+		ldh [Rendered + 1], a
 		ld a, HIGH(Buffer0)
-		ld [Old + 1], a
+		ldh [Old + 1], a
 		ld a, HIGH(_SCRN1)
 		ldh [Video + 1], a
 		
@@ -305,9 +331,10 @@ Start:
 .resetlow
 	; reset low bytes of pointers
 	xor a
-	ld [New], a
-	ld [Old], a
+	ldh [New], a
+	ldh [Old], a
 	ldh [Video], a
+	ldh [Rendered], a
 		
 	jp .mainloop
 
@@ -330,7 +357,7 @@ Conway:
 	
 	; check end of list
 	or a, e ; (a still contains d)
-	jp z, .decide
+	jr z, .decide
 	
 	; advance bc to next neighbor
 	ld b, h
@@ -425,7 +452,7 @@ VBlankInterruptHandler:
 	push af
 
 	; set max number of cells to render
-	ld a, 15
+	ld a, 10
 	ldh [RenderCount], a
 
 	; render
@@ -437,7 +464,7 @@ LCDStatInterruptHandler:
 	push af
 
 	; set max number of cells to render
-	ld a, 5
+	ld a, 1
 	ldh [RenderCount], a
 
 	; render
@@ -451,10 +478,122 @@ Render:
 	push hl
 	
 .loop
+	; compare rendered and new pointers
+	; compare high byte first
+	ldh a, [New + 1]
+	ld b, a
+	ldh a, [Rendered + 1]
+	cp a, b
+	jr c, .render
+	
+	; compare low byte
+	ldh a, [Rendered  + 0]
+	ld b, a
+	ldh a, [New + 0]
+	sub a, b
+	jr z, .exit
+	
+	; check there are at least two bytes to render
+	dec a
+	jr z, .exit
+
+	; load rendered pointer
+.render
+	ld hl, Rendered
+	ld a, [hl+]
+	ld h, [hl]
+	ld l, a
+	ld d, l
+	
+	; read two bytes in bits 0 and 1 of C
+	ld a, [hl+]
+	ld b, a
+	ld a, [hl+]
+	sla a
+	or a, b
+	
+	; store read data into C
+	ld c, a
+	
+	; test bit 6 of address to determine if we're on odd or even row 
+	bit 5, d
+
+	; store incremented rendered pointer
+	ld a, h
+	ld [Rendered + 1], a
+	ld a, l
+	ld [Rendered + 0], a
+	
+	jr z, .even
+.odd:
+	; move read data into bits 2 and 3
+	sla c
+	sla c
+	
+	; load video pointer
+	ld hl, Video
+	ld a, [hl+]
+	ld h, [hl]
+	ld l, a
+	
+	; load current data
+	ld a, [hl]
+	
+	; add read data
+	or a, c
+	
+	; write updated data into video ram
+	ld [hl], a
+	
+	; increment video pointer by 1
+	ld hl, Video
+	inc [hl]
+
+	; check end of line
+	ld a, [Rendered]
+	and %11111
+	jr nz, .next
+
+	; increment video pointer by 16 to go to next line
+	ldh a, [Video]
+	add a, 16
+	ldh [Video], a
+	jr nc, .next
+		ld hl, Video + 1
+		inc [hl]
+
+	jr .next
+.even:
+	; load video pointer
+	ld hl, Video
+	ld a, [hl+]
+	ld h, [hl]
+	ld l, a
+	
+	; write data into video ram
+	ld [hl], c
+
+	; increment video pointer by 1
+	ld hl, Video
+	inc [hl]
+
+	; check end of line
+	ld a, [Rendered]
+	and %11111
+	jr nz, .next
+		
+	; move back to beginning of video line
+	ldh a, [Video]
+	add a, -16
+	ldh [Video], a
+	
+	; decrement render count
+.next
 	ld hl, RenderCount
 	dec [hl]
 	jr nz, .loop
 
+.exit
 	; restore DE, BC, HL registers
 	pop hl
 	pop bc
@@ -466,19 +605,21 @@ Render:
 	; return from v-blank or lcd interrupt
 	reti
 	
-SECTION "Update Memory", WRAM0[$C000]
+SECTION "Automata buffers", WRAM0[$C000]
 Buffer0: ds 32 * 32
 Buffer1: ds 32 * 32
+
+SECTION "Update Memory", HRAM
+; update
 Old: ds 2
 New: ds 2
 Alive: ds 1
 XLoop: ds 1
 YLoop: ds 1
-Tile: ds 1
-
-SECTION "Render Memory", HRAM
-Video: ds 2
+; render
 RenderCount: ds 1
+Video: ds 2
+Rendered: ds 2
 
 SECTION "Game of Life neighboring cells offset tables", ROM0
 ; for a looping grid of 32x32 cells
@@ -491,43 +632,44 @@ BottomRow:         dw   1,  -991, -992, -993, -1,  -33, -32, -31, 0
 LeftColumn:        dw   1,    33,   32,   63, 31,   -1, -32, -31, 0
 RightColumn:       dw -31,     1,   32,   31, -1,  -33, -32, -63, 0
 Inner:             dw   1,    33,   32,   31, -1,  -33, -32, -31, 0
-	
+
+SECTION "Default Map", ROM0
+DefaultMap:
+	db 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
 SECTION "Graphics", ROM0
 Tiles:
 INCBIN "Tiles.bin"
 TilesEnd: ds 0
-
-DefaultMap:
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
