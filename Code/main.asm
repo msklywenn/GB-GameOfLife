@@ -69,17 +69,12 @@ Start:
 	
 	; load tiles
 	ld hl, _VRAM_BG_TILES
-	ld de, Tile0
+	ld de, Tiles
 	ld bc, 16
 	call MemoryCopy
 
 	ld hl, _VRAM_BG_TILES + 16
-	ld de, Tile1
-	ld bc, 16
-	call MemoryCopy
-
-	ld hl, _VRAM_BG_TILES + 32
-	ld de, Tile2
+	ld de, Tiles + 16
 	ld bc, 16
 	call MemoryCopy
 	
@@ -93,6 +88,12 @@ Start:
 	ld de, DefaultMap
 	ld bc, 32 * 32
 	call MemoryCopy
+	
+	; init buffer 0
+	ld hl, Buffer0
+	ld de, DefaultMap
+	ld bc, 32 * 32
+	call MemoryCopy
 
 	; display bg 9800
 	ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9800
@@ -102,27 +103,22 @@ Start:
 	ld a, STATF_MODE00
 	ld [rSTAT], a
 
-	; set old pointer to first tilemap
-	ld a, $98
+	; set old pointer to buffer0
+	ld a, HIGH(Buffer0)
 	ld [OldPointer + 1], a
 
-	; set new pointer to second tilemap
-	ld a, $9C
+	; set new pointer to buffer1
+	ld a, HIGH(Buffer1)
 	ld [NewPointer + 1], a
-	
-	; set low bytes of pointers to 0
-	xor a
-	ld [NewPointer], a
-	ld [OldPointer], a
 
+	; set low byte of pointers to 0 (start of buffer is aligned)
+	xor a
+	ld [OldPointer + 0], a
+	ld [NewPointer + 0], a
+	
 .mainloop
 
-	; disable v-blank interrupt, enable lcd stat interrupt
-	di
-	ld a, IEF_LCDC
-	ld [rIE], a
-	ei
-
+.topleft
 	; handle top left corner
 	ld bc, TopLeftCorner
 	call Conway
@@ -134,7 +130,7 @@ Start:
 	inc [hl]
 
 	; handle all cells in top row except corners
-	ld a, 18
+	ld a, 30
 .top
 	ld [XLoop], a
 
@@ -154,19 +150,18 @@ Start:
 	jr nz, .top
 
 	; handle top right corner
+.topright
 	ld bc, TopRightCorner
 	call Conway
 	
 	; advance pointers to next row
-	ld a, [OldPointer]
-	add a, 32 - 20 + 1
-	ld [OldPointer], a
-	; ld a, [NewPointer] ; unnecessary, both pointers are in sync and aligned the same
-	; add a, 32 - 20     ; unnecessary, both pointers are in sync and aligned the same
-	ld [NewPointer], a
+	ld hl, NewPointer
+	inc [hl]
+	ld hl, OldPointer
+	inc [hl]
 	
-	ld a, 16
-.columns
+	ld a, 30
+.leftcolumn
 	ld [YLoop], a
 	
 	; handle first element in row
@@ -179,7 +174,7 @@ Start:
 	ld hl, OldPointer
 	inc [hl]
 
-	ld a, 18
+	ld a, 30
 .inner
 	ld [XLoop], a
 
@@ -199,15 +194,16 @@ Start:
 	jr nz, .inner
 	
 	; handle last element in row
+.rightcolumn
 	ld bc, RightColumn
 	call Conway
 
 	; advance to next row
-	ld a, [NewPointer]
-	add a, 32 - 20 + 1
-	ld [NewPointer], a
-	ld [OldPointer], a
-	jr nc, .nocarry
+	ld hl, NewPointer
+	inc [hl]
+	ld hl, OldPointer
+	inc [hl]
+	jr nz, .nocarry
 		ld hl, NewPointer + 1
 		inc [hl]
 		ld hl, OldPointer + 1
@@ -217,9 +213,10 @@ Start:
 	; decrement y loop
 	ld a, [YLoop]
 	dec a
-	jr nz, .columns
+	jr nz, .leftcolumn
 	
 	; handle bottom left element
+.bottomleft
 	ld bc, BottomLeftCorner
 	call Conway
 	
@@ -230,7 +227,7 @@ Start:
 	inc [hl]
 
 	; handle all cells in bottom row except corners
-	ld a, 18
+	ld a, 30
 .bottom
 	ld [XLoop], a
 
@@ -250,16 +247,20 @@ Start:
 	jr nz, .bottom
 
 	; handle last element
+.bottomright
 	ld bc, BottomRightCorner
 	call Conway
-	
+
+	; wait for v-blank to swap pointers and render new buffer
+	halt
+
 	; swap buffers and reset pointers
 	ld a, [NewPointer + 1]
-	cp a, $9C
-	jr c, .newto9C00
-		ld a, $98
+	cp a, HIGH(Buffer1)
+	jr c, .newToBuffer0
+		ld a, HIGH(Buffer0)
 		ld [NewPointer + 1], a
-		ld a, $9C
+		ld a, HIGH(Buffer1)
 		ld [OldPointer + 1], a
 		
 		; display bg 9C00
@@ -267,10 +268,10 @@ Start:
 		ld [rLCDC], a
 
 	jr .resetlow
-.newto9C00
-		ld a, $9C
+.newToBuffer0
+		ld a, HIGH(Buffer1)
 		ld [NewPointer + 1], a
-		ld a, $98
+		ld a, HIGH(Buffer0)
 		ld [OldPointer + 1], a
 		
 		; display bg 9800
@@ -282,18 +283,10 @@ Start:
 	xor a
 	ld [NewPointer], a
 	ld [OldPointer], a
-	
-	; enable v-blank interrupt, disable lcd stat interrupt
-	di
-	ld a, IEF_VBLANK
-	ld [rIE], a
-	ei
-	
-	halt
-
+		
 	jp .mainloop
 
-SECTION "Table based conway's game of life step", ROM0	
+SECTION "Table based conway's game of life step for one cell", ROM0	
 	; bc = pointer to neighbor offsets
 	; destroys all registers
 Conway:
@@ -328,7 +321,6 @@ Conway:
 	add hl, de
 	
 	; load neighbor
-	halt
 	ld a, [hl]
 	
 	; check neighbor is alive
@@ -350,7 +342,6 @@ Conway:
 	ld l, a
 	
 	; load status
-	halt
 	ld a, [hl]
 	
 	; check if alive
@@ -403,29 +394,43 @@ Conway:
 	
 	ret	
 	
-SECTION "Work", WRAM0
+SECTION "Work", WRAM0[$C000]
+Buffer0: ds 32 * 32
+Buffer1: ds 32 * 32
 OldPointer: ds 2
 NewPointer: ds 2
 Alive: ds 1
 XLoop: ds 1
 YLoop: ds 1
+Tile: ds 1
 
-SECTION "Game Of Life Offset Tables", ROM0
+SECTION "Game of Life neighboring cells offset tables", ROM0
 ; for a looping grid of 20x18 cells, with stride 32
-TopLeftCorner:     dw   1,   33,   32,   51, 19, 563, 544, 545, 0
-TopRightCorner:    dw -19,   13,   32,   31, -1, 543, 544, 525, 0
-BottomLeftCorner:  dw   1, -543, -544, -525, 19, -13, -32, -31, 0
-BottomRightCorner: dw -19, -563, -544, -545, -1, -33, -32, -51, 0 
-TopRow:            dw   1,   33,   32,   31, -1, 543, 544, 545, 0
-BottomRow:         dw   1, -543, -544, -545, -1, -33, -32, -31, 0
-LeftColumn:        dw   1,   33,   32,   51, 19, -13, -32, -31, 0
-RightColumn:       dw -19,   13,   32,   31, -1, -33, -32, -51, 0
-Inner:             dw   1,   33,   32,   31, -1, -33, -32, -31, 0
+;TopLeftCorner:     dw   1,   33,   32,   51, 19, 563, 544, 545, 0
+;TopRightCorner:    dw -19,   13,   32,   31, -1, 543, 544, 525, 0
+;BottomLeftCorner:  dw   1, -543, -544, -525, 19, -13, -32, -31, 0
+;BottomRightCorner: dw -19, -563, -544, -545, -1, -33, -32, -51, 0 
+;TopRow:            dw   1,   33,   32,   31, -1, 543, 544, 545, 0
+;BottomRow:         dw   1, -543, -544, -545, -1, -33, -32, -31, 0
+;LeftColumn:        dw   1,   33,   32,   51, 19, -13, -32, -31, 0
+;RightColumn:       dw -19,   13,   32,   31, -1, -33, -32, -51, 0
+;Inner:             dw   1,   33,   32,   31, -1, -33, -32, -31, 0
+
+; for a looping grid of 32x32 cells
+TopLeftCorner:     dw   1,    33,   32,   63, 31, 1023, 992, 993, 0
+TopRightCorner:    dw -31,     1,   32,   31, -1,  991, 992, 961, 0
+BottomLeftCorner:  dw   1,  -991, -992, -961, 31,   -1, -32, -31, 0
+BottomRightCorner: dw -31, -1023, -992, -993, -1,  -33, -32, -63, 0
+TopRow:            dw   1,    33,   32,   31, -1,  991, 992, 993, 0
+BottomRow:         dw   1,  -991, -992, -993, -1,  -33, -32, -31, 0
+LeftColumn:        dw   1,    33,   32,   63, 31,   -1, -32, -31, 0
+RightColumn:       dw -31,     1,   32,   31, -1,  -33, -32, -63, 0
+Inner:             dw   1,    33,   32,   31, -1,  -33, -32, -31, 0
 	
 SECTION "Graphics", ROM0
-Tile0: db $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
-Tile1: db $00, $FF, $00, $FF, $00, $FF, $00, $FF, $00, $FF, $00, $FF, $00, $FF, $00, $FF
-Tile2: db $FF, $00, $FF, $00, $FF, $00, $FF, $00, $FF, $00, $FF, $00, $FF, $00, $FF, $00
+Tiles:
+INCBIN "Tiles.bin"
+
 DefaultMap:
 ; pulsar period 3
 ;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
@@ -464,16 +469,16 @@ DefaultMap:
 ; glider
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
