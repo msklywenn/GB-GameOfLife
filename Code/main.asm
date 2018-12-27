@@ -15,14 +15,19 @@ MemoryCopy:
 	or c
 	jr nz, MemoryCopy
 	ret
-
-SECTION "V-Blank Interrupt Handler", ROM0[$40]
-VBlankInterruptHandler:
-	reti
-
-SECTION "LCD Stat Interrupt Handler", ROM0[$48]
-LCDStatInterruptHandler:
-	reti
+	
+SECTION "Memory Set", ROM0
+; hl = destination
+; d = data
+; bc = count
+MemorySet:
+	ld a, d
+	ld [hl+], a
+	dec bc
+	ld a, b
+	or c
+	jr nz, MemorySet
+	ret
 
 SECTION "Timer Interrupt Handler", ROM0[$50]
 TimerInterruptHandler:
@@ -46,6 +51,9 @@ ENDR
 
 SECTION "Main", ROM0[$150]
 Start:
+	; shut sound off
+	ld [rNR52], a
+
 	; enable v-blank interrupt
 	ld a, IEF_VBLANK
 	ld [rIE], a
@@ -53,10 +61,7 @@ Start:
 	; enable interrupts
 	ei
 	
-	; shut sound off
-	ld [rNR52], a
-	
-	; wait for VBL
+	; wait for v-blank
 	halt 
 	
 	; disable screen
@@ -67,27 +72,26 @@ Start:
 	ld a, %11100100
 	ld [rBGP], a
 	
-	; load tiles
+	; load 18 tiles
+	; 0..15: 2x2 cell combinations
+	; 16: sprite selection tile
+	; 17: empty tile
 	ld hl, _VRAM_BG_TILES
 	ld de, Tiles
-	ld bc, 16
-	call MemoryCopy
-
-	ld hl, _VRAM_BG_TILES + 16
-	ld de, Tiles + 16
-	ld bc, 16
+	ld bc, TilesEnd - Tiles
 	call MemoryCopy
 	
-	; set scrolling to (0, 0)
-	xor a
-	ld [rSCY], a
+	; set scrolling to (32, 16)
+	ld a, 32
 	ld [rSCX], a
+	ld a, 16
+	ld [rSCY], a
 	
-	; init ram
+	; clear screen (both buffers)
 	ld hl, _SCRN0
-	ld de, DefaultMap
-	ld bc, 32 * 32
-	call MemoryCopy
+	ld d, 17 ; empty tile
+	ld bc, 32 * 32 * 2
+	call MemorySet
 	
 	; init buffer 0
 	ld hl, Buffer0
@@ -105,18 +109,28 @@ Start:
 
 	; set old pointer to buffer0
 	ld a, HIGH(Buffer0)
-	ld [OldPointer + 1], a
+	ld [Old + 1], a
 
 	; set new pointer to buffer1
 	ld a, HIGH(Buffer1)
-	ld [NewPointer + 1], a
+	ld [New + 1], a
+	
+	; shet video pointer to second tilemap
+	ld a, HIGH(_SCRN1)
+	ldh [Video + 1], a
 
 	; set low byte of pointers to 0 (start of buffer is aligned)
 	xor a
-	ld [OldPointer + 0], a
-	ld [NewPointer + 0], a
+	ld [Old + 0], a
+	ld [New + 0], a
 	
 .mainloop
+
+	; enable v-blank and lcd stat interrupt for h-blank
+	di
+	ld a, IEF_VBLANK | IEF_LCDC
+	ld [rIE], a
+	ei
 
 .topleft
 	; handle top left corner
@@ -124,9 +138,9 @@ Start:
 	call Conway
 	
 	; advance to next cell in top row
-	ld hl, NewPointer
+	ld hl, New
 	inc [hl]
-	ld hl, OldPointer
+	ld hl, Old
 	inc [hl]
 
 	; handle all cells in top row except corners
@@ -139,9 +153,9 @@ Start:
 	call Conway
 	
 	; advance to next cell in top row
-	ld hl, NewPointer
+	ld hl, New
 	inc [hl]
-	ld hl, OldPointer
+	ld hl, Old
 	inc [hl]
 	
 	; decrement x loop
@@ -155,9 +169,9 @@ Start:
 	call Conway
 	
 	; advance pointers to next row
-	ld hl, NewPointer
+	ld hl, New
 	inc [hl]
-	ld hl, OldPointer
+	ld hl, Old
 	inc [hl]
 	
 	ld a, 30
@@ -169,9 +183,9 @@ Start:
 	call Conway
 	
 	; advance to next cell
-	ld hl, NewPointer
+	ld hl, New
 	inc [hl]
-	ld hl, OldPointer
+	ld hl, Old
 	inc [hl]
 
 	ld a, 30
@@ -183,9 +197,9 @@ Start:
 	call Conway
 	
 	; advance to next cell
-	ld hl, NewPointer
+	ld hl, New
 	inc [hl]
-	ld hl, OldPointer
+	ld hl, Old
 	inc [hl]
 	
 	; decrement x loop
@@ -199,14 +213,14 @@ Start:
 	call Conway
 
 	; advance to next row
-	ld hl, NewPointer
+	ld hl, New
 	inc [hl]
-	ld hl, OldPointer
+	ld hl, Old
 	inc [hl]
 	jr nz, .nocarry
-		ld hl, NewPointer + 1
+		ld hl, New + 1
 		inc [hl]
-		ld hl, OldPointer + 1
+		ld hl, Old + 1
 		inc [hl]
 .nocarry
 
@@ -221,9 +235,9 @@ Start:
 	call Conway
 	
 	; advance to next cell in bottom row
-	ld hl, NewPointer
+	ld hl, New
 	inc [hl]
-	ld hl, OldPointer
+	ld hl, Old
 	inc [hl]
 
 	; handle all cells in bottom row except corners
@@ -236,9 +250,9 @@ Start:
 	call Conway
 	
 	; advance to next cell in top row
-	ld hl, NewPointer
+	ld hl, New
 	inc [hl]
-	ld hl, OldPointer
+	ld hl, Old
 	inc [hl]
 	
 	; decrement x loop
@@ -251,28 +265,38 @@ Start:
 	ld bc, BottomRightCorner
 	call Conway
 
-	; wait for v-blank to swap pointers and render new buffer
+	; enable only v-blank interrupt
+	di
+	ld a, IEF_VBLANK
+	ld [rIE], a
+	ei
+
+	; wait v-blank
 	halt
 
-	; swap buffers and reset pointers
-	ld a, [NewPointer + 1]
+	; swap pointers and display bg that has just been filled
+	ld a, [New + 1]
 	cp a, HIGH(Buffer1)
-	jr c, .newToBuffer0
+	jr c, .newToBuffer1
 		ld a, HIGH(Buffer0)
-		ld [NewPointer + 1], a
+		ld [New + 1], a
 		ld a, HIGH(Buffer1)
-		ld [OldPointer + 1], a
-		
+		ld [Old + 1], a
+		ld a, HIGH(_SCRN0)
+		ldh [Video + 1], a
+
 		; display bg 9C00
 		ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9C00
 		ld [rLCDC], a
 
 	jr .resetlow
-.newToBuffer0
+.newToBuffer1
 		ld a, HIGH(Buffer1)
-		ld [NewPointer + 1], a
+		ld [New + 1], a
 		ld a, HIGH(Buffer0)
-		ld [OldPointer + 1], a
+		ld [Old + 1], a
+		ld a, HIGH(_SCRN1)
+		ldh [Video + 1], a
 		
 		; display bg 9800
 		ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9800
@@ -281,8 +305,9 @@ Start:
 .resetlow
 	; reset low bytes of pointers
 	xor a
-	ld [NewPointer], a
-	ld [OldPointer], a
+	ld [New], a
+	ld [Old], a
+	ldh [Video], a
 		
 	jp .mainloop
 
@@ -312,7 +337,7 @@ Conway:
 	ld c, l
 	
 	; load old pointer
-	ld hl, OldPointer
+	ld hl, Old
 	ld a, [hl+]
 	ld h, [hl]
 	ld l, a
@@ -336,7 +361,7 @@ Conway:
 
 .decide
 	; load old pointer
-	ld hl, OldPointer
+	ld hl, Old
 	ld a, [hl+]
 	ld h, [hl]
 	ld l, a
@@ -358,7 +383,7 @@ Conway:
 	
 .writealive
 	; load new pointer
-	ld hl, NewPointer
+	ld hl, New
 	ld a, [hl+]
 	ld h, [hl]
 	ld l, a
@@ -383,7 +408,7 @@ Conway:
 	
 .writedead
 	; load new pointer
-	ld hl, NewPointer
+	ld hl, New
 	ld a, [hl+]
 	ld h, [hl]
 	ld l, a
@@ -393,29 +418,69 @@ Conway:
 	ld [hl], a
 	
 	ret	
+
+SECTION "V-Blank Interrupt Handler", ROM0[$40]
+VBlankInterruptHandler:
+	; save A and flags
+	push af
+
+	; set max number of cells to render
+	ld a, 15
+	ldh [RenderCount], a
+
+	; render
+	jp Render
+
+SECTION "LCD Stat Interrupt Handler", ROM0[$48]
+LCDStatInterruptHandler:
+	; save A and flags
+	push af
+
+	; set max number of cells to render
+	ld a, 5
+	ldh [RenderCount], a
+
+	; render
+	jp Render
 	
-SECTION "Work", WRAM0[$C000]
+SECTION "Render", ROM0
+Render:
+	; save DE, BC, HL registers
+	push de
+	push bc
+	push hl
+	
+.loop
+	ld hl, RenderCount
+	dec [hl]
+	jr nz, .loop
+
+	; restore DE, BC, HL registers
+	pop hl
+	pop bc
+	pop de
+	
+	; restore A and flags, saved in interrupt handler
+	pop af
+
+	; return from v-blank or lcd interrupt
+	reti
+	
+SECTION "Update Memory", WRAM0[$C000]
 Buffer0: ds 32 * 32
 Buffer1: ds 32 * 32
-OldPointer: ds 2
-NewPointer: ds 2
+Old: ds 2
+New: ds 2
 Alive: ds 1
 XLoop: ds 1
 YLoop: ds 1
 Tile: ds 1
 
-SECTION "Game of Life neighboring cells offset tables", ROM0
-; for a looping grid of 20x18 cells, with stride 32
-;TopLeftCorner:     dw   1,   33,   32,   51, 19, 563, 544, 545, 0
-;TopRightCorner:    dw -19,   13,   32,   31, -1, 543, 544, 525, 0
-;BottomLeftCorner:  dw   1, -543, -544, -525, 19, -13, -32, -31, 0
-;BottomRightCorner: dw -19, -563, -544, -545, -1, -33, -32, -51, 0 
-;TopRow:            dw   1,   33,   32,   31, -1, 543, 544, 545, 0
-;BottomRow:         dw   1, -543, -544, -545, -1, -33, -32, -31, 0
-;LeftColumn:        dw   1,   33,   32,   51, 19, -13, -32, -31, 0
-;RightColumn:       dw -19,   13,   32,   31, -1, -33, -32, -51, 0
-;Inner:             dw   1,   33,   32,   31, -1, -33, -32, -31, 0
+SECTION "Render Memory", HRAM
+Video: ds 2
+RenderCount: ds 1
 
+SECTION "Game of Life neighboring cells offset tables", ROM0
 ; for a looping grid of 32x32 cells
 TopLeftCorner:     dw   1,    33,   32,   63, 31, 1023, 992, 993, 0
 TopRightCorner:    dw -31,     1,   32,   31, -1,  991, 992, 961, 0
@@ -430,43 +495,9 @@ Inner:             dw   1,    33,   32,   31, -1,  -33, -32, -31, 0
 SECTION "Graphics", ROM0
 Tiles:
 INCBIN "Tiles.bin"
+TilesEnd: ds 0
 
 DefaultMap:
-; pulsar period 3
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-;	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-; glider
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
