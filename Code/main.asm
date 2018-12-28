@@ -118,7 +118,7 @@ Start:
 	; init buffer 0
 	ld hl, Buffer0
 	ld de, DefaultMap
-	ld bc, 32 * 32
+	ld bc, 20 * 18
 	call MemoryCopy
 
 	; display bg 9800
@@ -139,8 +139,8 @@ Start:
 
 .topleft
 	; handle top left corner
-	ld bc, TopLeftCorner
-	call Conway
+	ld hl, TopLeftCorner
+	call ConwayGroup
 	
 	; advance to next cell in top row
 	ld hl, New
@@ -154,8 +154,8 @@ Start:
 	ld [XLoop], a
 
 	; handle top row cell
-	ld bc, TopRow
-	call Conway
+	ld hl, TopRow
+	call ConwayGroup
 	
 	; advance to next cell in top row
 	ld hl, New
@@ -170,8 +170,8 @@ Start:
 
 	; handle top right corner
 .topright
-	ld bc, TopRightCorner
-	call Conway
+	ld hl, TopRightCorner
+	call ConwayGroup
 	
 	; advance pointers to next row
 	ld hl, New
@@ -184,8 +184,8 @@ Start:
 	ld [YLoop], a
 	
 	; handle first element in row
-	ld bc, LeftColumn
-	call Conway
+	ld hl, LeftColumn
+	call ConwayGroup
 	
 	; advance to next cell
 	ld hl, New
@@ -198,8 +198,8 @@ Start:
 	ld [XLoop], a
 
 	; handle element inside row
-	ld bc, Inner
-	call Conway
+	ld hl, Inner
+	call ConwayGroup
 	
 	; advance to next cell
 	ld hl, New
@@ -214,8 +214,8 @@ Start:
 	
 	; handle last element in row
 .rightcolumn
-	ld bc, RightColumn
-	call Conway
+	ld hl, RightColumn
+	call ConwayGroup
 
 	; advance to next row
 	ld hl, New
@@ -236,8 +236,8 @@ Start:
 	
 	; handle bottom left element
 .bottomleft
-	ld bc, BottomLeftCorner
-	call Conway
+	ld hl, BottomLeftCorner
+	call ConwayGroup
 	
 	; advance to next cell in bottom row
 	ld hl, New
@@ -251,8 +251,8 @@ Start:
 	ld [XLoop], a
 
 	; handle top row cell
-	ld bc, BottomRow
-	call Conway
+	ld hl, BottomRow
+	call ConwayGroup
 	
 	; advance to next cell in top row
 	ld hl, New
@@ -267,8 +267,8 @@ Start:
 
 	; handle last element
 .bottomright
-	ld bc, BottomRightCorner
-	call Conway
+	ld hl, BottomRightCorner
+	call ConwayGroup
 	
 	; increment new pointer to first byte after buffer
 	ld hl, New
@@ -338,32 +338,48 @@ Start:
 		
 	jp .mainloop
 
-SECTION "Table based conway's game of life step for one cell", ROM0	
-	; bc = pointer to neighbor offsets
+SECTION "Load cell group and 8 neighbors to HRAM, then compute", ROM0	
+	; hl = pointer to neighbor offsets
 	; destroys all registers
-Conway:
-	; reset alive counter
-	xor a
-	ld [Alive], a
+ConwayGroup:
+	; save pointer to neighbors
+	push hl
+
+	; pointer to HRAM
+	ld c, LOW(Cells)
+	
+	; load old pointer into hl
+	ld hl, Old
+	ld a, [hl+]
+	ld h, [hl]
+	ld l, a
+
+	; load cell group
+	ld a, [hl]
+
+	; write cell group into hram
+	ld [$FF00+c], a
+
+	; increment hram pointer
+	inc c
+	
+	; counter to 8
+	ld b, 8
 	
 .loop
+	; restore pointer to neighbors
+	pop hl
+
 	; load offset into de
-	ld h, b
-	ld l, c
 	ld a, [hl+]
 	ld e, a
 	ld a, [hl+]
 	ld d, a
+
+	; save incremented pointer to neighbors
+	push hl
 	
-	; check end of list
-	or a, e ; (a still contains d)
-	jr z, .decide
-	
-	; advance bc to next neighbor
-	ld b, h
-	ld c, l
-	
-	; load old pointer
+	; load old pointer into hl
 	ld hl, Old
 	ld a, [hl+]
 	ld h, [hl]
@@ -375,100 +391,158 @@ Conway:
 	; load neighbor
 	ld a, [hl]
 	
-	; check neighbor is alive
-	or a, 0
-	jr z, .loop
+	; store neighbor into hram
+	ld [$FF00+c], a
 	
-	; increment alive
-	ld hl, Alive
-	inc [hl]
+	; increment pointer into hram
+	inc c
 	
-	; continue to next neighbor
-	jr .loop
+	; decrement counter
+	dec b
+	
+	; continue to next neighbor if any
+	jr nz, .loop
 
-.decide
-	; load old pointer
-	ld hl, Old
+.compute
+	; remove pointer to offsets from stack
+	pop hl
+	
+	; reset result
+	xor a
+	ldh [Result], a
+	
+	; compute all 4 cells
+	ld hl, TopLeftMask
+	call Conway
+	
+	ld hl, TopRightMask
+	call Conway
+	
+	ld hl, BottomLeftMask
+	call Conway
+	
+	ld hl, BottomRightMask
+	call Conway
+	
+	; load new pointer
+	ld hl, New
 	ld a, [hl+]
 	ld h, [hl]
 	ld l, a
 	
-	; load status
-	ld a, [hl]
+	; load result
+	ldh a, [Result]
 	
-	; check if alive
-	or a, 0
-	jr nz, .alive
+	; save result to new buffer
+	ld [hl], a
 	
-.dead
-	; load live neighbor count
-	ld a, [Alive]
+	ret	
 	
-	; check if there is 3 neighbors
-	cp a, 3
-	jr nz, .writedead
+SECTION "Conway cell compute", ROM0
+	; hl = pointer to cell group masks
+Conway:
+
+	; reset alive counter
+	xor a
+	ldh [Alive], a
+	
+	; load cells pointer to first neighbor
+	ld c, LOW(Cells + 1)
+	
+.loop
+	; load next mask
+	ld a, [hl+]
+	
+	; check end of table
+	cp a, $FF
+	jr z, .decide
+	
+	; move mask to d
+	ld d, a
+	
+	; load data
+	ld a, [$FF00+c]
+	
+	; mask data
+	and a, d
+	
+	; count bits set
+	ld de, BitsSet
+	add a, e
+	ld e, a
+	ld a, [de]
+	ld b, a
+	
+	; add to alive
+	ldh a, [Alive]
+	add a, b
+	ldh [Alive], a
+	
+	; increment cells pointer
+	inc c
+		
+	; loop over all neighbors
+	jr .loop
+	
+	; load current group mask
+.decide
+	ld b, [hl]
+	
+	; load current cell group
+	ldh a, [Cells]
+	
+	; mask data
+	and a, b
+	
+	; load alive count
+	ldh a, [Alive]
+
+	jr z, .dead
+.alive
+	; check if there is two or three neighbors
+	bit 1, a
+	ret z
 	
 .writealive
-	; load new pointer
-	ld hl, New
-	ld a, [hl+]
-	ld h, [hl]
-	ld l, a
-	
-	; write alive 
-	ld a, 1
-	ld [hl], a
-	
+	; add mask to result
+	ldh a, [Result]
+	or a, b
+	ldh [Result], a
 	ret
 	
-.alive
-	; load live neighbor count
-	ld a, [Alive]
-	
-	; check if there is 3 neighbors
-	cp a, 3
-	jr z, .writealive
-	
-	; check if there is 2 neighbors
+.dead
+	; check if there is two neighbors
 	cp a, 2
 	jr z, .writealive
-	
-.writedead
-	; load new pointer
-	ld hl, New
-	ld a, [hl+]
-	ld h, [hl]
-	ld l, a
-	
-	; write alive 
-	xor a ; a = 0
-	ld [hl], a
-	
+
+.writedead	
 	ret	
 
 SECTION "V-Blank Interrupt Handler", ROM0[$40]
 VBlankInterruptHandler:
+	reti
 	; save A and flags
-	push af
-
-	; set max number of cells to render
-	ld a, 10
-	ldh [RenderCount], a
-
-	; render
-	jp Render
+	;push af
+    ;
+	;; set max number of cells to render
+	;ld a, 10
+	;ldh [RenderCount], a
+    ;
+	;; render
+	;jp Render
 
 SECTION "LCD Stat Interrupt Handler", ROM0[$48]
 LCDStatInterruptHandler:
+	reti
 	; save A and flags
-	push af
-
-	; set max number of cells to render
-	ld a, 1
-	ldh [RenderCount], a
-
-	; render
-	jp Render
+	;push af
+    ;
+	;; set max number of cells to render
+	;ld a, 1
+	;ldh [RenderCount], a
+    ;
+	;; render
+	;jp Render
 	
 SECTION "Render", ROM0
 Render:
@@ -605,69 +679,85 @@ Render:
 	; return from v-blank or lcd interrupt
 	reti
 	
-SECTION "Automata buffers", WRAM0[$C000]
-Buffer0: ds 32 * 32
-Buffer1: ds 32 * 32
+SECTION "Automata buffer 0", WRAM0, ALIGN[9]
+Buffer0: ds 20 * 18
 
-SECTION "Update Memory", HRAM
-; update
-Old: ds 2
-New: ds 2
+SECTION "Automata buffer 0", WRAM0, ALIGN[9]
+Buffer1: ds 20 * 18
+
+SECTION "Compute Memory", HRAM
+Old: ds 2 ; pointer to bufferX
+New: ds 2 ; pointer to bufferX
 Alive: ds 1
 XLoop: ds 1
 YLoop: ds 1
-; render
-RenderCount: ds 1
-Video: ds 2
-Rendered: ds 2
+Cells: ds 9
+Result: ds 1
+
+SECTION "Render Memory", HRAM
+RenderCount: ds 1 ; max number of tiles to render before leaving
+Video: ds 2 ; pointer to tilemap
+Rendered: ds 2 ; pointer to bufferX
 
 SECTION "Game of Life neighboring cells offset tables", ROM0
-; for a looping grid of 32x32 cells
-TopLeftCorner:     dw   1,    33,   32,   63, 31, 1023, 992, 993, 0
-TopRightCorner:    dw -31,     1,   32,   31, -1,  991, 992, 961, 0
-BottomLeftCorner:  dw   1,  -991, -992, -961, 31,   -1, -32, -31, 0
-BottomRightCorner: dw -31, -1023, -992, -993, -1,  -33, -32, -63, 0
-TopRow:            dw   1,    33,   32,   31, -1,  991, 992, 993, 0
-BottomRow:         dw   1,  -991, -992, -993, -1,  -33, -32, -31, 0
-LeftColumn:        dw   1,    33,   32,   63, 31,   -1, -32, -31, 0
-RightColumn:       dw -31,     1,   32,   31, -1,  -33, -32, -63, 0
-Inner:             dw   1,    33,   32,   31, -1,  -33, -32, -31, 0
+; for a looping grid of 20x18 cells
+; order matters         R,   BR,    B,   BL,  L,  TL,   T,  TR
+TopLeftCorner:     dw   1,   21,   20,   39, 19, 359, 340, 341
+TopRightCorner:    dw -19,    1,   20,   19, -1, 339, 340, 321
+BottomLeftCorner:  dw   1, -339, -340, -321, 19,  -1, -20, -19
+BottomRightCorner: dw -19, -359, -340, -341, -1, -21, -20, -39
+TopRow:            dw   1,   21,   20,   19, -1, 339, 340, 341
+BottomRow:         dw   1, -339, -340, -341, -1, -21, -20, -19
+LeftColumn:        dw   1,   21,   20,   39, 19,  -1, -20, -19
+RightColumn:       dw -19,    1,   20,   19, -1, -21, -20, -39
+Inner:             dw   1,   21,   20,   19, -1, -21, -20, -19
+
+SECTION "Game of Life neighboring masks", ROM0
+; order matters      I,  R, BR,  B, BL,  L, TL,  T, TR, SELF, END 
+TopLeftMask:     db 14,  0,  0,  0,  0, 10,  8, 12,  0,    1, $FF
+TopRightMask:    db 13,  5,  0,  0,  0,  0,  0, 12,  4,    2, $FF
+BottomLeftMask:  db 11,  0,  0,  3,  2, 10,  0,  0,  0,    4, $FF
+BottomRightMask: db  7,  5,  1,  3,  0,  0,  0,  0,  0,    8, $FF
+
+SECTION "Bits Set", ROM0, ALIGN[4]
+BitsSet:
+	db 0;  0 = 0000
+	db 1;  1 = 0001
+	db 1;  2 = 0010
+	db 2;  3 = 0011
+	db 1;  4 = 0100
+	db 2;  5 = 0101
+	db 2;  6 = 0110
+	db 3;  7 = 0111
+	db 1;  8 = 1000
+	db 2;  9 = 1001
+	db 2; 10 = 1010
+	db 3; 11 = 1011
+	db 2; 12 = 1100
+	db 3; 13 = 1101
+	db 3; 14 = 1110
+	db 4; 15 = 1111
 
 SECTION "Default Map", ROM0
 DefaultMap:
-	db 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 3, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 SECTION "Graphics", ROM0
 Tiles:
