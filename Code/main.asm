@@ -54,27 +54,25 @@ Start:
 	; shut sound off
 	ld [rNR52], a
 
-	; set old pointer to buffer0
+	; set old and rendered pointers to buffer0
 	ld a, HIGH(Buffer0)
 	ldh [Old + 1], a
+	ldh [Rendered + 1], a
 
 	; set new pointer to buffer1
 	ld a, HIGH(Buffer1)
 	ldh [New + 1], a
 
-	; set rendered to buffer1 also
-	ldh [Rendered + 1], a
-	
-	; set video pointer to second tilemap
-	ld a, HIGH(_SCRN1)
+	; set video pointer to first tilemap
+	ld a, HIGH(_SCRN0)
 	ldh [Video + 1], a
-
-	; set low byte of pointers to 0 (all buffers are aligned)
+	
+	; reset low bytes of pointers (all buffers are aligned)
 	xor a
-	ldh [Old + 0], a
-	ldh [New + 0], a
-	ldh [Rendered + 0], a
-	ldh [Video + 0], a
+	ldh [New], a
+	ldh [Old], a
+	ldh [Rendered], a
+	ldh [Video], a
 
 	; enable v-blank interrupt
 	ld a, IEF_VBLANK
@@ -103,16 +101,21 @@ Start:
 	ld bc, TilesEnd - Tiles
 	call MemoryCopy
 	
-	; set scrolling to (-16, -8)
-	ld a, -16
+	; set scrolling to (0, 0)
+	xor a
 	ld [rSCX], a
-	ld a, -8
 	ld [rSCY], a
 	
 	; clear screen (both buffers)
 	ld hl, _SCRN0
 	ld d, 17 ; empty tile
 	ld bc, 32 * 32 * 2
+	call MemorySet
+	
+	; clear screen (both buffers)
+	ld hl, _SCRN1
+	ld d, 0 ; empty tile
+	ld bc, 32 * 32
 	call MemorySet
 	
 	; init buffer 0
@@ -149,7 +152,7 @@ Start:
 	inc [hl]
 
 	; handle all cells in top row except corners
-	ld a, 30
+	ld a, 18
 .top
 	ld [XLoop], a
 
@@ -179,7 +182,7 @@ Start:
 	ld hl, Old
 	inc [hl]
 	
-	ld a, 30
+	ld a, 16
 .leftcolumn
 	ld [YLoop], a
 	
@@ -193,7 +196,7 @@ Start:
 	ld hl, Old
 	inc [hl]
 
-	ld a, 30
+	ld a, 18
 .inner
 	ld [XLoop], a
 
@@ -206,6 +209,12 @@ Start:
 	inc [hl]
 	ld hl, Old
 	inc [hl]
+	jr nz, .noCarry
+		inc hl ; old+1
+		inc [hl]
+		ld hl, New + 1
+		inc [hl]
+.noCarry
 	
 	; decrement x loop
 	ld a, [XLoop]
@@ -222,13 +231,7 @@ Start:
 	inc [hl]
 	ld hl, Old
 	inc [hl]
-	jr nz, .nocarry
-		inc hl ; old + 1
-		inc [hl]
-		ld hl, New + 1
-		inc [hl]
-.nocarry
-
+	
 	; decrement y loop
 	ld a, [YLoop]
 	dec a
@@ -246,7 +249,7 @@ Start:
 	inc [hl]
 
 	; handle all cells in bottom row except corners
-	ld a, 30
+	ld a, 18
 .bottom
 	ld [XLoop], a
 
@@ -270,72 +273,85 @@ Start:
 	ld hl, BottomRightCorner
 	call ConwayGroup
 	
-	; increment new pointer to first byte after buffer
-	ld hl, New
+	; increment old pointer to first byte after buffer
+	ld hl, Old
 	inc [hl]
-	inc hl
-	inc [hl]
+
+	; wait end of rendering
+;.waitRender
+;	halt
+;	; compare high byte of rendered and old pointers
+;	ldh a, [Rendered + 1]
+;	ld b, a
+;	ldh a, [Old + 1]
+;	cp a, b
+;	jr nz, .waitRender
+;	; compare low byte of rendered and old pointers
+;	ldh a, [Rendered]
+;	ld b, a
+;	ldh a, [Old]
+;	cp a, b
+;	jr nz, .waitRender
 
 	; enable only v-blank interrupt
 	di
 	ld a, IEF_VBLANK
 	ld [rIE], a
 	ei
-
-	; wait end of rendering
-.waitRender
-	halt
-	; compare high byte of rendered and new pointers
-	ldh a, [Rendered + 1]
-	ld b, a
-	ldh a, [New + 1]
-	cp a, b
-	jr nz, .waitRender
-	; compare low byte of rendered and new pointers
-	ldh a, [Rendered]
-	ld b, a
-	ldh a, [New]
-	cp a, b
-	jr nz, .waitRender
-
-	; swap pointers and display bg that has just been filled
-	ldh a, [New + 1]
-	cp a, HIGH(Buffer1)
-	jr z, .newToBuffer1
-		ld a, HIGH(Buffer0)
-		ldh [New + 1], a
-		ldh [Rendered + 1], a
-		ld a, HIGH(Buffer1)
-		ldh [Old + 1], a
-		ld a, HIGH(_SCRN0)
-		ldh [Video + 1], a
-
-		; display bg 9C00
-		ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9C00
-		ld [rLCDC], a
-
-	jr .resetlow
-.newToBuffer1
-		ld a, HIGH(Buffer1)
-		ldh [New + 1], a
-		ldh [Rendered + 1], a
-		ld a, HIGH(Buffer0)
-		ldh [Old + 1], a
-		ld a, HIGH(_SCRN1)
-		ldh [Video + 1], a
-		
-		; display bg 9800
-		ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9800
-		ld [rLCDC], a
 	
-.resetlow
-	; reset low bytes of pointers
+	; wait v-blank
+	halt
+
+	; check which buffer has just been rendered
+	ldh a, [Old + 1]
+	cp a, HIGH(Buffer1)
+	jr nc, .newToBuffer1
+
+.newToBuffer0
+	; set old and rendered pointers to buffer1
+	ld a, HIGH(Buffer1)
+	ldh [Old + 1], a
+	ldh [Rendered + 1], a
+
+	; set new pointer to buffer0
+	ld a, HIGH(Buffer0)
+	ldh [New + 1], a
+
+	; set video pointer to first tilemap
+	ld a, HIGH(_SCRN1)
+	ldh [Video + 1], a
+
+	; display bg 9800 that has just been filled
+	ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9800
+	ld [rLCDC], a
+
+	jr .resetLowBytes
+
+.newToBuffer1
+	; set old and rendered pointers to buffer0
+	ld a, HIGH(Buffer0)
+	ldh [Old + 1], a
+	ldh [Rendered + 1], a
+
+	; set new pointer to buffer1
+	ld a, HIGH(Buffer1)
+	ldh [New + 1], a
+
+	; set video pointer to second tilemap
+	ld a, HIGH(_SCRN0)
+	ldh [Video + 1], a
+	
+	; display bg 9C00 that has just been filled
+	ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9C00
+	ld [rLCDC], a
+
+.resetLowBytes
 	xor a
 	ldh [New], a
 	ldh [Old], a
-	ldh [Video], a
 	ldh [Rendered], a
-		
+	ldh [Video], a
+	
 	jp .mainloop
 
 SECTION "Load cell group and 8 neighbors to HRAM, then compute", ROM0	
@@ -681,8 +697,7 @@ Render:
 	
 SECTION "Automata buffer 0", WRAM0, ALIGN[9]
 Buffer0: ds 20 * 18
-
-SECTION "Automata buffer 0", WRAM0, ALIGN[9]
+SECTION "Automata buffer 1", WRAM0, ALIGN[9]
 Buffer1: ds 20 * 18
 
 SECTION "Compute Memory", HRAM
