@@ -481,16 +481,12 @@ Conway:
 	xor a
 	ldh [Alive], a
 	
-	; load cells pointer to first neighbor
-	ld c, LOW(Cells + 1)
+	; load cells pointer
+	ld c, LOW(Cells)
 	
 .loop
 	; load next mask
 	ld a, [hl+]
-	
-	; check end of table
-	cp a, $FF
-	jr z, .decide
 	
 	; move mask to d
 	ld d, a
@@ -517,10 +513,12 @@ Conway:
 	inc c
 		
 	; loop over all neighbors
-	jr .loop
+	ld a, c
+	cp a, LOW(Cells + 9)
+	jr nz, .loop
 	
-	; load current group mask
 .decide
+	; load current group mask
 	ld b, [hl]
 	
 	; load current cell group
@@ -546,8 +544,8 @@ Conway:
 	ret
 	
 .dead
-	; check if there is two neighbors
-	cp a, 2
+	; check if there is three neighbors
+	cp a, 3
 	jr z, .writealive
 
 .writedead	
@@ -726,11 +724,11 @@ RightColumn:       dw -19,    1,   20,   19, -1, -21, -20, -39
 Inner:             dw   1,   21,   20,   19, -1, -21, -20, -19
 
 SECTION "Game of Life neighboring masks", ROM0
-; order matters      I,  R, BR,  B, BL,  L, TL,  T, TR, SELF, END 
-TopLeftMask:     db 14,  0,  0,  0,  0, 10,  8, 12,  0,    1, $FF
-TopRightMask:    db 13,  5,  0,  0,  0,  0,  0, 12,  4,    2, $FF
-BottomLeftMask:  db 11,  0,  0,  3,  2, 10,  0,  0,  0,    4, $FF
-BottomRightMask: db  7,  5,  1,  3,  0,  0,  0,  0,  0,    8, $FF
+; order matters      I,  R, BR,  B, BL,  L, TL,  T, TR, SELF 
+TopLeftMask:     db 14,  0,  0,  0,  0, 10,  8, 12,  0,    1
+TopRightMask:    db 13,  5,  0,  0,  0,  0,  0, 12,  4,    2
+BottomLeftMask:  db 11,  0,  0,  3,  2, 10,  0,  0,  0,    4
+BottomRightMask: db  7,  5,  1,  3,  0,  0,  0,  0,  0,    8
 
 SECTION "Bits Set", ROM0, ALIGN[4]
 BitsSet:
