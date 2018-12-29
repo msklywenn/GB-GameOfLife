@@ -73,6 +73,10 @@ Start:
 	ldh [Old], a
 	ldh [Rendered], a
 	ldh [Video], a
+	
+	; set total to render to 0 so that interrupts don't start rendering
+	ldh [TotalToRender], a
+	ldh [TotalToRender + 1], a
 
 	; enable v-blank interrupt
 	ld a, IEF_VBLANK
@@ -123,9 +127,15 @@ Start:
 	ld de, DefaultMap
 	ld bc, 20 * 18
 	call MemoryCopy
+	
+	; set total to render to start rendering
+	ld a, LOW(20 * 18)
+	ldh [TotalToRender], a
+	ld a, HIGH(20 * 18)
+	ldh [TotalToRender + 1], a
 
-	; display bg 9800
-	ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9800
+	; enable screen but don't display anything yet
+	ld a, LCDCF_ON
 	ld [rLCDC], a
 	
 	; enable h-blank interrupt in lcd stat
@@ -136,7 +146,7 @@ Start:
 
 	; enable v-blank and lcd stat interrupt for h-blank
 	di
-	ld a, IEF_VBLANK ;| IEF_LCDC
+	ld a, IEF_VBLANK; | IEF_LCDC
 	ld [rIE], a
 	ei
 
@@ -166,7 +176,7 @@ Start:
 	ld hl, Old
 	inc [hl]
 	
-	; decrement x loop
+	; loop horizontally
 	ld a, [XLoop]
 	dec a
 	jr nz, .top
@@ -216,7 +226,7 @@ Start:
 		inc [hl]
 .noCarry
 	
-	; decrement x loop
+	; loop horizontally
 	ld a, [XLoop]
 	dec a
 	jr nz, .inner
@@ -232,7 +242,7 @@ Start:
 	ld hl, Old
 	inc [hl]
 	
-	; decrement y loop
+	; loop vertically
 	ld a, [YLoop]
 	dec a
 	jr nz, .leftcolumn
@@ -263,7 +273,7 @@ Start:
 	ld hl, Old
 	inc [hl]
 	
-	; decrement x loop
+	; loop horizontally
 	ld a, [XLoop]
 	dec a
 	jr nz, .bottom
@@ -278,21 +288,23 @@ Start:
 	inc [hl]
 
 	; wait end of rendering
-;.waitRender
-;	halt
-;	; compare high byte of rendered and old pointers
-;	ldh a, [Rendered + 1]
-;	ld b, a
-;	ldh a, [Old + 1]
-;	cp a, b
-;	jr nz, .waitRender
-;	; compare low byte of rendered and old pointers
-;	ldh a, [Rendered]
-;	ld b, a
-;	ldh a, [Old]
-;	cp a, b
-;	jr nz, .waitRender
+.waitRenderHigh
+	; check high byte of TotalToRender
+	ldh a, [TotalToRender + 1]
+	or a
+	jr z, .waitRenderLow
+	halt
+	jr .waitRenderHigh
+	
+.waitRenderLow
+	; check low byte of TotalToRender
+	ldh a, [TotalToRender]
+	or a
+	jr z, .swap
+	halt
+	jr .waitRenderLow
 
+.swap
 	; enable only v-blank interrupt
 	di
 	ld a, IEF_VBLANK
@@ -340,17 +352,24 @@ Start:
 	; set video pointer to second tilemap
 	ld a, HIGH(_SCRN0)
 	ldh [Video + 1], a
-	
+
 	; display bg 9C00 that has just been filled
 	ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9C00
 	ld [rLCDC], a
 
 .resetLowBytes
+	; reset low bytes of pointers
 	xor a
 	ldh [New], a
 	ldh [Old], a
 	ldh [Rendered], a
 	ldh [Video], a
+	
+	; set total to render to start rendering
+	ld a, LOW(20 * 18)
+	ldh [TotalToRender], a
+	ld a, HIGH(20 * 18)
+	ldh [TotalToRender + 1], a
 	
 	jp .mainloop
 
@@ -536,165 +555,143 @@ Conway:
 
 SECTION "V-Blank Interrupt Handler", ROM0[$40]
 VBlankInterruptHandler:
-	reti
-	; save A and flags
-	;push af
-    ;
-	;; set max number of cells to render
-	;ld a, 10
-	;ldh [RenderCount], a
-    ;
-	;; render
-	;jp Render
+	; save a
+	push af
+
+	; set max number of cells to render
+	ld a, 64
+	ldh [MaxRender], a
+    
+	; render
+	jp Render
 
 SECTION "LCD Stat Interrupt Handler", ROM0[$48]
 LCDStatInterruptHandler:
-	reti
-	; save A and flags
-	;push af
-    ;
-	;; set max number of cells to render
-	;ld a, 1
-	;ldh [RenderCount], a
-    ;
-	;; render
-	;jp Render
+	; save a
+	push af
+
+	; set max number of cells to render
+	ld a, 1
+	ldh [MaxRender], a
+    
+	; render
+	jp Render
 	
 SECTION "Render", ROM0
 Render:
-	; save DE, BC, HL registers
+	; save registers
 	push de
 	push bc
 	push hl
 	
-.loop
-	; compare rendered and new pointers
-	; compare high byte first
-	ldh a, [New + 1]
+	; load counter into b
+	ldh a, [MaxRender]
 	ld b, a
-	ldh a, [Rendered + 1]
-	cp a, b
-	jr c, .render
 	
-	; compare low byte
-	ldh a, [Rendered  + 0]
-	ld b, a
-	ldh a, [New + 0]
-	sub a, b
-	jr z, .exit
+	; check there is more than 255 bytes to render left
+	ldh a, [TotalToRender + 1]
+	and a
+	jr nz, .render
 	
-	; check there are at least two bytes to render
-	dec a
+	; check there is anything at all to render
+	ldh a, [TotalToRender]
+	and a
 	jr z, .exit
 
-	; load rendered pointer
+	; check we're not trying to render more than what's left to render
+	cp a, b
+	jr nc, .render
+	
+	; render only what's left to
+	ld b, a
+	
 .render
+	; save render count so that we can decrement total later
+	push bc
+	
+	; load buffer pointer into DE
 	ld hl, Rendered
 	ld a, [hl+]
+	ld d, [hl]
+	ld e, a	
+	
+	; load video pointer into HL
+	ld hl, Video
+	ld a, [hl+]
 	ld h, [hl]
 	ld l, a
-	ld d, l
 	
-	; read two bytes in bits 0 and 1 of C
-	ld a, [hl+]
-	ld b, a
-	ld a, [hl+]
-	sla a
-	or a, b
-	
-	; store read data into C
+	; set c to number of tiles before next line
+	ld a, l
+	and a, $E0
+	add a, 20
+	sub a, l
 	ld c, a
 	
-	; test bit 6 of address to determine if we're on odd or even row 
-	bit 5, d
+.loop
+	; copy one byte
+	ld a, [de]
+	ld [hl+], a
+	inc de
+	
+	; check if we need to go to next line
+	dec c
+	jr nz , .countdown
+	
+	; go to next line
+	push de
+	ld de, 32 - 20
+	add hl, de
+	pop de
+	ld c, 20
 
-	; store incremented rendered pointer
-	ld a, h
-	ld [Rendered + 1], a
+	; loop over if not finished
+.countdown
+	dec b
+	jr nz, .loop	
+
+	; save incremented video and buffer pointers
 	ld a, l
-	ld [Rendered + 0], a
-	
-	jr z, .even
-.odd:
-	; move read data into bits 2 and 3
-	sla c
-	sla c
-	
-	; load video pointer
-	ld hl, Video
-	ld a, [hl+]
-	ld h, [hl]
-	ld l, a
-	
-	; load current data
-	ld a, [hl]
-	
-	; add read data
-	or a, c
-	
-	; write updated data into video ram
-	ld [hl], a
-	
-	; increment video pointer by 1
-	ld hl, Video
-	inc [hl]
-
-	; check end of line
-	ld a, [Rendered]
-	and %11111
-	jr nz, .next
-
-	; increment video pointer by 16 to go to next line
-	ldh a, [Video]
-	add a, 16
 	ldh [Video], a
-	jr nc, .next
-		ld hl, Video + 1
-		inc [hl]
-
-	jr .next
-.even:
-	; load video pointer
-	ld hl, Video
-	ld a, [hl+]
-	ld h, [hl]
-	ld l, a
+	ld a, h
+	ldh [Video + 1], a
 	
-	; write data into video ram
-	ld [hl], c
-
-	; increment video pointer by 1
-	ld hl, Video
-	inc [hl]
-
-	; check end of line
-	ld a, [Rendered]
-	and %11111
-	jr nz, .next
-		
-	; move back to beginning of video line
-	ldh a, [Video]
-	add a, -16
-	ldh [Video], a
+	ld a, e
+	ldh [Rendered], a
+	ld a, d
+	ldh [Rendered + 1], a
 	
-	; decrement render count
-.next
-	ld hl, RenderCount
+	; restore max render
+	pop bc
+	
+	; decrement total to render
+	ldh a, [TotalToRender]
+	sub a, b
+	ldh [TotalToRender], a
+	jr nc, .exit
+	ld hl, TotalToRender + 1
 	dec [hl]
-	jr nz, .loop
 
 .exit
-	; restore DE, BC, HL registers
+	; restore registers
 	pop hl
 	pop bc
 	pop de
 	
-	; restore A and flags, saved in interrupt handler
+	; restore A saved in interrupt handler
 	pop af
 
 	; return from v-blank or lcd interrupt
 	reti
 	
+
+; automata buffers with 4 cells per byte	
+; 2x2 bytes per cell, bit ordering:
+;  ___       ___
+; |0 1|     |0 1|
+; |2 3| eg. |1 0| is %0110 = 6
+;  ‾‾‾       ‾‾‾
+; bits 4, 5, 6 and 7 are not used
 SECTION "Automata buffer 0", WRAM0, ALIGN[9]
 Buffer0: ds 20 * 18
 SECTION "Automata buffer 1", WRAM0, ALIGN[9]
@@ -710,9 +707,10 @@ Cells: ds 9
 Result: ds 1
 
 SECTION "Render Memory", HRAM
-RenderCount: ds 1 ; max number of tiles to render before leaving
-Video: ds 2 ; pointer to tilemap
-Rendered: ds 2 ; pointer to bufferX
+MaxRender: ds 1     ; max number of tiles to render before leaving
+TotalToRender: ds 2 ; total number of tiles to render left
+Video: ds 2         ; pointer to tilemap
+Rendered: ds 2      ; pointer to bufferX
 
 SECTION "Game of Life neighboring cells offset tables", ROM0
 ; for a looping grid of 20x18 cells
@@ -755,6 +753,7 @@ BitsSet:
 
 SECTION "Default Map", ROM0
 DefaultMap:
+	; 20x18 map with a glider on the top left corner
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 3, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
