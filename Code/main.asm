@@ -74,16 +74,18 @@ Start:
 	ldh [Rendered], a
 	ldh [Video], a
 	
-	; set total to render to 0 so that interrupts don't start rendering
-	ldh [TotalToRender], a
-	ldh [TotalToRender + 1], a
+	; set lines and tiles left to 0 to avoid rendering in interrupts 
+	ldh [LinesLeft], a
+	ldh [TilesLeft], a
 
 	; enable v-blank interrupt
 	ld a, IEF_VBLANK
 	ld [rIE], a
 	
-	; enable interrupts
+	; enable interrupts while clearing interrupt flags
+	xor a
 	ei
+	ldh [rIF], a
 	
 	; wait for v-blank
 	halt 
@@ -129,26 +131,28 @@ Start:
 	call MemoryCopy
 	
 	; set total to render to start rendering
-	ld a, LOW(20 * 18)
-	ldh [TotalToRender], a
-	ld a, HIGH(20 * 18)
-	ldh [TotalToRender + 1], a
+	ld a, 18
+	ldh [LinesLeft], a
+	ld a, 20
+	ldh [TilesLeft], a
+	
+	; enable h-blank interrupt in lcd stat
+	ld a, STATF_MODE00
+	ld [rSTAT], a
 
 	; enable screen but don't display anything yet
 	ld a, LCDCF_ON
 	ld [rLCDC], a
 	
-	; enable h-blank interrupt in lcd stat
-	ld a, STATF_MODE00
-	ld [rSTAT], a
-	
 .mainloop
 
 	; enable v-blank and lcd stat interrupt for h-blank
 	di
-	ld a, IEF_VBLANK; | IEF_LCDC
+	ld a, IEF_VBLANK | IEF_LCDC
 	ld [rIE], a
+	xor a
 	ei
+	ldh [rIF], a
 
 .topleft
 	; handle top left corner
@@ -288,28 +292,30 @@ Start:
 	inc [hl]
 
 	; wait end of rendering
-.waitRenderHigh
+.waitLines
 	; check high byte of TotalToRender
-	ldh a, [TotalToRender + 1]
+	ldh a, [LinesLeft]
 	or a
-	jr z, .waitRenderLow
+	jr z, .waitTiles
 	halt
-	jr .waitRenderHigh
+	jr .waitLines
 	
-.waitRenderLow
+.waitTiles
 	; check low byte of TotalToRender
-	ldh a, [TotalToRender]
+	ldh a, [TilesLeft]
 	or a
 	jr z, .swap
 	halt
-	jr .waitRenderLow
+	jr .waitTiles
 
 .swap
 	; enable only v-blank interrupt
 	di
 	ld a, IEF_VBLANK
 	ld [rIE], a
+	xor a
 	ei
+	ldh [rIF], a
 	
 	; wait v-blank
 	halt
@@ -365,11 +371,11 @@ Start:
 	ldh [Rendered], a
 	ldh [Video], a
 	
-	; set total to render to start rendering
-	ld a, LOW(20 * 18)
-	ldh [TotalToRender], a
-	ld a, HIGH(20 * 18)
-	ldh [TotalToRender + 1], a
+	; set total to render to restart rendering
+	ld a, 20
+	ldh [TilesLeft], a
+	ld a, 18
+	ldh [LinesLeft], a
 	
 	jp .mainloop
 
@@ -555,89 +561,72 @@ Conway:
 
 SECTION "V-Blank Interrupt Handler", ROM0[$40]
 VBlankInterruptHandler:
-	; save a
+	; save registers
 	push af
-
-	; set max number of cells to render
-	ld a, 64
-	ldh [MaxRender], a
+	push de
+	push bc
+	push hl
     
 	; render
 	jp Render
 
 SECTION "LCD Stat Interrupt Handler", ROM0[$48]
 LCDStatInterruptHandler:
-	; save a
+	; save registers
 	push af
-
-	; set max number of cells to render
-	ld a, 1
-	ldh [MaxRender], a
+	push de
+	push bc
+	push hl
     
 	; render
 	jp Render
 	
 SECTION "Render", ROM0
-Render:
-	; save registers
-	push de
-	push bc
-	push hl
-	
-	; load counter into b
-	ldh a, [MaxRender]
-	ld b, a
-	
-	; check there is more than 255 bytes to render left
-	ldh a, [TotalToRender + 1]
-	and a
-	jr nz, .render
-	
-	; check there is anything at all to render
-	ldh a, [TotalToRender]
+Render:	
+	; check there are lines to render
+	ldh a, [LinesLeft]
 	and a
 	jr z, .exit
 
-	; check we're not trying to render more than what's left to render
-	cp a, b
-	jr nc, .render
-	
-	; render only what's left to
-	ld b, a
-	
-.render
-	; save render count so that we can decrement total later
-	push bc
-	
+	; check there are tiles to render
+	ldh a, [TilesLeft]
+	and a
+	jr z, .exit
+
+.render	
 	; load buffer pointer into DE
 	ld hl, Rendered
 	ld a, [hl+]
 	ld d, [hl]
 	ld e, a	
-	
+
 	; load video pointer into HL
 	ld hl, Video
 	ld a, [hl+]
 	ld h, [hl]
 	ld l, a
-	
-	; set c to number of tiles before next line
-	ld a, l
-	and a, $E0
-	add a, 20
-	sub a, l
-	ld c, a
-	
+
+	; set c to point to tiles left to render
+.nextline
+	ld c, LOW(TilesLeft)
+
 .loop
+	; check we can still render
+	ldh a, [rSTAT]
+	and a, STATF_BUSY
+	jr nz, .finish
+
 	; copy one byte
 	ld a, [de]
 	ld [hl+], a
 	inc de
-	
-	; check if we need to go to next line
-	dec c
-	jr nz , .countdown
-	
+
+	; loop while there are tiles to render
+	ld a, [$FF00+c]
+	dec a
+	ld [$FF00+c], a
+	jr nz, .loop
+
 	; go to next line
 	push de
 	ld de, 32 - 20
@@ -645,45 +634,39 @@ Render:
 	pop de
 	ld c, 20
 
-	; loop over if not finished
-.countdown
-	dec b
-	jr nz, .loop	
+	; loop while there are lines to render
+	ld c, LOW(LinesLeft)
+	ld a, [$FF00+c]
+	dec a
+	ld [$FF00+c], a
+	jr z, .finish
+
+	ld a, 20
+	ldh [TilesLeft], a
+
+	jr .nextline
 
 	; save incremented video and buffer pointers
+.finish
 	ld a, l
 	ldh [Video], a
 	ld a, h
 	ldh [Video + 1], a
-	
+
 	ld a, e
 	ldh [Rendered], a
 	ld a, d
 	ldh [Rendered + 1], a
-	
-	; restore max render
-	pop bc
-	
-	; decrement total to render
-	ldh a, [TotalToRender]
-	sub a, b
-	ldh [TotalToRender], a
-	jr nc, .exit
-	ld hl, TotalToRender + 1
-	dec [hl]
 
 .exit
-	; restore registers
+	; restore registers saved in interrupt handler
 	pop hl
 	pop bc
 	pop de
-	
-	; restore A saved in interrupt handler
 	pop af
 
 	; return from v-blank or lcd interrupt
 	reti
-	
 
 ; automata buffers with 4 cells per byte	
 ; 2x2 bytes per cell, bit ordering:
@@ -707,8 +690,8 @@ Cells: ds 9
 Result: ds 1
 
 SECTION "Render Memory", HRAM
-MaxRender: ds 1     ; max number of tiles to render before leaving
-TotalToRender: ds 2 ; total number of tiles to render left
+LinesLeft: ds 1     ; number of lines left to render
+TilesLeft: ds 1     ; number of tiles left to render in current line
 Video: ds 2         ; pointer to tilemap
 Rendered: ds 2      ; pointer to bufferX
 
@@ -754,22 +737,22 @@ BitsSet:
 SECTION "Default Map", ROM0
 DefaultMap:
 	; 20x18 map with a glider on the top left corner
-	db 1, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 9,12, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 1, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 9,12, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 3, 1, 0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 5, 0,10,10, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 1,12, 6, 2,12, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0,12, 4, 0,12, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 5, 0,10,10, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 1, 0, 2, 2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 3, 1, 0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
