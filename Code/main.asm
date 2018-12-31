@@ -40,8 +40,7 @@ AddLiveNeighbors: MACRO
 	and a, b
 	
 	; count bits set
-	ld de, BitsSet
-	add a, e
+	ld d, HIGH(BitsSet)
 	ld e, a
 	ld a, [de]
 
@@ -643,7 +642,7 @@ TilesLeft: ds 1     ; number of tiles left to render in current line
 Video: ds 2         ; progressing pointer in tilemap (VRAM)
 Rendered: ds 2      ; progressing pointer in old buffer
 
-SECTION "Bits Set", ROM0, ALIGN[4]
+SECTION "Bits Set", ROM0, ALIGN[8]
 BitsSet:
 	db 0;  0 = 0000
 	db 1;  1 = 0001
