@@ -29,6 +29,150 @@ MemorySet:
 	jr nz, MemorySet
 	ret
 
+AddLiveNeighbors: MACRO
+	; H register will be incremented with number of alive neighbors
+	; destroys A, B, C, D, E, does not touch L
+
+	; load current 2x2 cell and mask out bits that are not neighbors
+	ld c, LOW(Cells + \1)
+	ld a, [$FF00+c]
+	ld b, \2
+	and a, b
+	
+	; count bits set
+	ld de, BitsSet
+	add a, e
+	ld e, a
+	ld a, [de]
+
+	; add to alive
+	add a, h
+	ld h, a
+ENDM
+	
+Conway: MACRO
+	; \1 = mask for neighbors in inner cell
+	; \2 = first useful neighbor 2x2 cell
+	; \3 = mask for first useful neighbor 2x2 cell
+	; \4 = mask for second useful neighbor 2x2 cell
+	; \5 = mask for third useful neighbor 2x2 cell
+	;
+	; L will be updated with cell result
+	; destroys all other registers
+
+	; reset alive counter
+	ld h, 0
+	
+	; Check all neighbors
+	AddLiveNeighbors 0, \1
+	AddLiveNeighbors (1 + (\2 + 0) % 8), \3
+	AddLiveNeighbors (1 + (\2 + 1) % 8), \4
+	AddLiveNeighbors (1 + (\2 + 2) % 8), \5
+	
+	; load current group mask
+	ld b, (~\1) & $F
+	
+	; load current cell group
+	ldh a, [Cells]
+	
+	; mask data
+	and a, b
+	
+	; put alive neighbors in A
+	ld a, h
+
+	jr z, .dead\@
+;.alive
+	; check if there is two or three neighbors
+	cp a, 2
+	jr c, .writedead\@
+	cp a, 4
+	jr nc, .writedead\@
+	
+.writealive\@
+	; add mask to result
+	ld a, l
+	add a, b
+	ld l, a
+	jr .writedead\@
+	
+.dead\@
+	; check if there is three neighbors
+	cp a, 3
+	jr z, .writealive\@
+
+.writedead\@
+ENDM
+
+LoadCellToHRAM: MACRO
+	; \1 = offset to Old pointer
+	; destroys A, D, E, H, L
+	; increments C
+	
+	; load old pointer into hl
+	ld hl, Old
+	ld a, [hl+]
+	ld h, [hl]
+	ld l, a
+	
+	; add offset
+IF \1 != 0
+	ld de, \1
+	add hl, de
+ENDC
+	
+	; load neighbor
+	ld a, [hl]
+	
+	; store in HRAM
+	ld [$FF00+c], a
+	
+	; increment hram pointer
+	inc c
+ENDM
+
+SECTION "Load cell group and 8 neighbors to HRAM, then compute", ROM0	
+	; \1..\8 offset to neighbors
+	; destroys all registers
+ConwayGroup: MACRO 
+
+	; pointer to HRAM
+	ld c, LOW(Cells)
+	
+	; load current 2x2 cell then neighbor 2x2 cells to HRAM from old buffer
+	LoadCellToHRAM 0
+	LoadCellToHRAM \1
+	LoadCellToHRAM \2
+	LoadCellToHRAM \3
+	LoadCellToHRAM \4
+	LoadCellToHRAM \5
+	LoadCellToHRAM \6
+	LoadCellToHRAM \7
+	LoadCellToHRAM \8
+
+	; reset result
+	xor a
+	ld l, a
+	
+	; compute all 4 cells in current 2x2 cell
+	Conway 14, 4, 10, 8, 12
+	Conway 13, 6, 12, 4, 5
+	Conway 11, 2, 3, 2, 10
+	Conway 7, 0, 5, 1, 3
+	
+	; move result to B
+	ld b, l
+	
+	; load new pointer
+	ld hl, New
+	ld a, [hl+]
+	ld h, [hl]
+	ld l, a
+	
+	; save result to new buffer
+	ld [hl], b
+ENDM
+
 SECTION "Timer Interrupt Handler", ROM0[$50]
 TimerInterruptHandler:
 	reti
@@ -153,8 +297,7 @@ Start:
 
 .topleft
 	; handle top left corner
-	ld hl, TopLeftCorner
-	call ConwayGroup
+	ConwayGroup 1, 21, 20, 39, 19, 359, 340, 341
 	
 	; advance to next cell in top row
 	ld hl, New
@@ -168,8 +311,7 @@ Start:
 	ld [XLoop], a
 
 	; handle top row cell
-	ld hl, TopRow
-	call ConwayGroup
+	ConwayGroup 1, 21, 20, 19, -1, 339, 340, 341
 	
 	; advance to next cell in top row
 	ld hl, New
@@ -180,12 +322,11 @@ Start:
 	; loop horizontally
 	ld a, [XLoop]
 	dec a
-	jr nz, .top
+	jp nz, .top
 
 	; handle top right corner
 .topright
-	ld hl, TopRightCorner
-	call ConwayGroup
+	ConwayGroup -19, 1, 20, 19, -1, 339, 340, 321
 	
 	; advance pointers to next row
 	ld hl, New
@@ -198,8 +339,7 @@ Start:
 	ld [YLoop], a
 	
 	; handle first element in row
-	ld hl, LeftColumn
-	call ConwayGroup
+	ConwayGroup 1, 21, 20, 39, 19, -1, -20, -19
 	
 	; advance to next cell
 	ld hl, New
@@ -212,8 +352,7 @@ Start:
 	ld [XLoop], a
 
 	; handle element inside row
-	ld hl, Inner
-	call ConwayGroup
+	ConwayGroup 1, 21, 20, 19, -1, -21, -20, -19
 	
 	; advance to next cell
 	ld hl, New
@@ -230,12 +369,11 @@ Start:
 	; loop horizontally
 	ld a, [XLoop]
 	dec a
-	jr nz, .inner
+	jp nz, .inner
 	
 	; handle last element in row
 .rightcolumn
-	ld hl, RightColumn
-	call ConwayGroup
+	ConwayGroup -19, 1, 20, 19, -1, -21, -20, -39
 
 	; advance to next row
 	ld hl, New
@@ -246,12 +384,11 @@ Start:
 	; loop vertically
 	ld a, [YLoop]
 	dec a
-	jr nz, .leftcolumn
+	jp nz, .leftcolumn
 	
 	; handle bottom left element
 .bottomleft
-	ld hl, BottomLeftCorner
-	call ConwayGroup
+	ConwayGroup 1, -339, -340, -321, 19,  -1, -20, -19
 	
 	; advance to next cell in bottom row
 	ld hl, New
@@ -265,8 +402,7 @@ Start:
 	ld [XLoop], a
 
 	; handle top row cell
-	ld hl, BottomRow
-	call ConwayGroup
+	ConwayGroup 1, -339, -340, -341, -1, -21, -20, -19
 	
 	; advance to next cell in top row
 	ld hl, New
@@ -277,12 +413,11 @@ Start:
 	; loop horizontally
 	ld a, [XLoop]
 	dec a
-	jr nz, .bottom
+	jp nz, .bottom
 
 	; handle last element
 .bottomright
-	ld hl, BottomRightCorner
-	call ConwayGroup
+	ConwayGroup -19, -359, -340, -341, -1, -21, -20, -39
 	
 	; increment old pointer to first byte after buffer
 	ld hl, Old
@@ -374,167 +509,6 @@ Start:
 	ldh [LinesLeft], a
 	
 	jp .mainloop
-
-AddLiveNeighbors: MACRO
-	; H register will store number of alive neighbors
-
-	; load current cell and mask out bits that are not neighbors
-	ld c, LOW(Cells + \1)
-	ld a, [$FF00+c]
-	ld b, \2
-	and a, b
-	
-	; count bits set
-	ld de, BitsSet
-	add a, e
-	ld e, a
-	ld a, [de]
-
-	; add to alive
-	add a, h
-	ld h, a
-ENDM
-	
-Conway: MACRO
-	; \1 = mask for neighbors in inner cell
-	; \2 = first useful neighbor 2x2 cell
-	; \3 = mask for first useful neighbor 2x2 cell
-	; \4 = mask for second useful neighbor 2x2 cell
-	; \5 = mask for third useful neighbor 2x2 cell
-	;
-	; C will store final 2x2 updated cell
-
-	; reset alive counter
-	ld h, 0
-	
-	; Check all neighbors
-	AddLiveNeighbors 0, \1
-	AddLiveNeighbors (1 + (\2 + 0) % 8), \3
-	AddLiveNeighbors (1 + (\2 + 1) % 8), \4
-	AddLiveNeighbors (1 + (\2 + 2) % 8), \5
-	
-	; load current group mask
-	ld b, (~\1) & $F
-	
-	; load current cell group
-	ldh a, [Cells]
-	
-	; mask data
-	and a, b
-	
-	; put alive neighbors in A
-	ld a, h
-
-	jr z, .dead\@
-;.alive
-	; check if there is two or three neighbors
-	cp a, 2
-	jr c, .writedead\@
-	cp a, 4
-	jr nc, .writedead\@
-	
-.writealive\@
-	; add mask to result
-	inc c
-	jr .writedead\@
-	
-.dead\@
-	; check if there is three neighbors
-	cp a, 3
-	jr z, .writealive\@
-
-.writedead\@
-ENDM
-
-SECTION "Load cell group and 8 neighbors to HRAM, then compute", ROM0	
-	; hl = pointer to neighbor offsets
-	; destroys all registers
-ConwayGroup:
-	; save pointer to neighbors
-	push hl
-
-	; pointer to HRAM
-	ld c, LOW(Cells)
-	
-	; load old pointer into hl
-	ld hl, Old
-	ld a, [hl+]
-	ld h, [hl]
-	ld l, a
-
-	; load cell group
-	ld a, [hl]
-
-	; write cell group into hram
-	ld [$FF00+c], a
-
-	; increment hram pointer
-	inc c
-	
-	; counter to 8
-	ld b, 8
-	
-.loop
-	; restore pointer to neighbors
-	pop hl
-
-	; load offset into de
-	ld a, [hl+]
-	ld e, a
-	ld a, [hl+]
-	ld d, a
-
-	; save incremented pointer to neighbors
-	push hl
-	
-	; load old pointer into hl
-	ld hl, Old
-	ld a, [hl+]
-	ld h, [hl]
-	ld l, a
-	
-	; add offset
-	add hl, de
-	
-	; load neighbor
-	ld a, [hl]
-	
-	; store neighbor into hram
-	ld [$FF00+c], a
-	
-	; increment pointer into hram
-	inc c
-	
-	; decrement counter
-	dec b
-	
-	; continue to next neighbor if any
-	jr nz, .loop
-
-.compute
-	; remove pointer to offsets from stack
-	pop hl
-	
-	; reset result
-	xor a
-	ld c, a
-	
-	; compute all 4 cells
-	Conway 14, 4, 10, 8, 12
-	Conway 13, 6, 12, 4, 5
-	Conway 11, 2, 3, 2, 10
-	Conway 7, 0, 5, 1, 3
-	
-	; load new pointer
-	ld hl, New
-	ld a, [hl+]
-	ld h, [hl]
-	ld l, a
-	
-	; save result to new buffer
-	ld [hl], c
-	
-	ret	
 
 SECTION "V-Blank Interrupt Handler", ROM0[$40]
 VBlankInterruptHandler:
@@ -668,19 +642,6 @@ LinesLeft: ds 1     ; number of lines left to render
 TilesLeft: ds 1     ; number of tiles left to render in current line
 Video: ds 2         ; progressing pointer in tilemap (VRAM)
 Rendered: ds 2      ; progressing pointer in old buffer
-
-SECTION "Game of Life neighboring cells offset tables", ROM0
-; for a looping grid of 20x18 cells
-; order matters         R,   BR,    B,   BL,  L,  TL,   T,  TR
-TopLeftCorner:     dw   1,   21,   20,   39, 19, 359, 340, 341
-TopRightCorner:    dw -19,    1,   20,   19, -1, 339, 340, 321
-BottomLeftCorner:  dw   1, -339, -340, -321, 19,  -1, -20, -19
-BottomRightCorner: dw -19, -359, -340, -341, -1, -21, -20, -39
-TopRow:            dw   1,   21,   20,   19, -1, 339, 340, 341
-BottomRow:         dw   1, -339, -340, -341, -1, -21, -20, -19
-LeftColumn:        dw   1,   21,   20,   39, 19,  -1, -20, -19
-RightColumn:       dw -19,    1,   20,   19, -1, -21, -20, -39
-Inner:             dw   1,   21,   20,   19, -1, -21, -20, -19
 
 SECTION "Bits Set", ROM0, ALIGN[4]
 BitsSet:
