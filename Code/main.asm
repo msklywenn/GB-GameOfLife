@@ -401,6 +401,8 @@ Conway: MACRO
 	; \3 = mask for first useful neighbor 2x2 cell
 	; \4 = mask for second useful neighbor 2x2 cell
 	; \5 = mask for third useful neighbor 2x2 cell
+	;
+	; C will store final 2x2 updated cell
 
 	; reset alive counter
 	ld h, 0
@@ -433,9 +435,7 @@ Conway: MACRO
 	
 .writealive\@
 	; add mask to result
-	ldh a, [Result]
-	or a, b
-	ldh [Result], a
+	inc c
 	jr .writedead\@
 	
 .dead\@
@@ -517,7 +517,7 @@ ConwayGroup:
 	
 	; reset result
 	xor a
-	ldh [Result], a
+	ld c, a
 	
 	; compute all 4 cells
 	Conway 14, 4, 10, 8, 12
@@ -531,11 +531,8 @@ ConwayGroup:
 	ld h, [hl]
 	ld l, a
 	
-	; load result
-	ldh a, [Result]
-	
 	; save result to new buffer
-	ld [hl], a
+	ld [hl], c
 	
 	ret	
 
@@ -664,14 +661,13 @@ Old: ds 2 ; pointer to bufferX
 New: ds 2 ; pointer to bufferX
 XLoop: ds 1
 YLoop: ds 1
-Cells: ds 9
-Result: ds 1
+Cells: ds 9 ; cells loaded from old buffer, order is: self then right, clockwise
 
 SECTION "Render Memory", HRAM
 LinesLeft: ds 1     ; number of lines left to render
 TilesLeft: ds 1     ; number of tiles left to render in current line
-Video: ds 2         ; pointer to tilemap
-Rendered: ds 2      ; pointer to bufferX
+Video: ds 2         ; progressing pointer in tilemap (VRAM)
+Rendered: ds 2      ; progressing pointer in old buffer
 
 SECTION "Game of Life neighboring cells offset tables", ROM0
 ; for a looping grid of 20x18 cells
