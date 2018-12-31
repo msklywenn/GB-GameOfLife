@@ -81,10 +81,8 @@ Start:
 	; enable v-blank interrupt
 	ld a, IEF_VBLANK
 	ld [rIE], a
-	
-	; enable interrupts while clearing interrupt flags
+
 	xor a
-	ei
 	ldh [rIF], a
 	
 	; wait for v-blank
@@ -147,8 +145,7 @@ Start:
 .mainloop
 
 	; enable v-blank and lcd stat interrupt for h-blank
-	di
-	ld a, IEF_VBLANK | IEF_LCDC
+	ld a, IEF_VBLANK; | IEF_LCDC
 	ld [rIE], a
 	xor a
 	ei
@@ -314,7 +311,6 @@ Start:
 	ld a, IEF_VBLANK
 	ld [rIE], a
 	xor a
-	ei
 	ldh [rIF], a
 	
 	; wait v-blank
@@ -378,6 +374,71 @@ Start:
 	ldh [LinesLeft], a
 	
 	jp .mainloop
+
+CountLiveNeighbors: MACRO
+	; load current cell and mask out bits that are not neighbors
+	ld c, LOW(Cells + \1)
+	ld a, [$FF00+c]
+	ld b, \2
+	and a, b
+	
+	; count bits set
+	ld de, BitsSet
+	add a, e
+	ld e, a
+	ld a, [de]
+	ld b, a
+	
+	; add to alive
+	ldh a, [Alive]
+	add a, b
+	ldh [Alive], a
+ENDM
+	
+Conway: MACRO
+	; reset alive counter
+	xor a
+	ldh [Alive], a
+	
+	CountLiveNeighbors 0, \1
+	CountLiveNeighbors (1 + (\2 + 0) % 8), \3
+	CountLiveNeighbors (1 + (\2 + 1) % 8), \4
+	CountLiveNeighbors (1 + (\2 + 2) % 8), \5
+	
+	; load current group mask
+	ld b, (~\1) & $F
+	
+	; load current cell group
+	ldh a, [Cells]
+	
+	; mask data
+	and a, b
+	
+	; load alive count
+	ldh a, [Alive]
+
+	jr z, .dead\@
+;.alive
+	; check if there is two or three neighbors
+	cp a, 2
+	jr c, .writedead\@
+	cp a, 4
+	jr nc, .writedead\@
+	
+.writealive\@
+	; add mask to result
+	ldh a, [Result]
+	or a, b
+	ldh [Result], a
+	jr .writedead\@
+	
+.dead\@
+	; check if there is three neighbors
+	cp a, 3
+	jr z, .writealive\@
+
+.writedead\@
+ENDM
 
 SECTION "Load cell group and 8 neighbors to HRAM, then compute", ROM0	
 	; hl = pointer to neighbor offsets
@@ -453,17 +514,10 @@ ConwayGroup:
 	ldh [Result], a
 	
 	; compute all 4 cells
-	ld hl, TopLeftMask
-	call Conway
-	
-	ld hl, TopRightMask
-	call Conway
-	
-	ld hl, BottomLeftMask
-	call Conway
-	
-	ld hl, BottomRightMask
-	call Conway
+	Conway 14, 4, 10, 8, 12
+	Conway 13, 6, 12, 4, 5
+	Conway 11, 2, 3, 2, 10
+	Conway 7, 0, 5, 1, 3
 	
 	; load new pointer
 	ld hl, New
@@ -478,93 +532,13 @@ ConwayGroup:
 	ld [hl], a
 	
 	ret	
-	
-SECTION "Conway cell compute", ROM0
-	; hl = pointer to cell group masks
-Conway:
-
-	; reset alive counter
-	xor a
-	ldh [Alive], a
-	
-	; load cells pointer
-	ld c, LOW(Cells)
-	
-.loop
-	; load next mask
-	ld a, [hl+]
-	
-	; move mask to d
-	ld d, a
-	
-	; load data
-	ld a, [$FF00+c]
-	
-	; mask data
-	and a, d
-	
-	; count bits set
-	ld de, BitsSet
-	add a, e
-	ld e, a
-	ld a, [de]
-	ld b, a
-	
-	; add to alive
-	ldh a, [Alive]
-	add a, b
-	ldh [Alive], a
-	
-	; increment cells pointer
-	inc c
-		
-	; loop over all neighbors
-	ld a, c
-	cp a, LOW(Cells + 9)
-	jr nz, .loop
-	
-.decide
-	; load current group mask
-	ld b, [hl]
-	
-	; load current cell group
-	ldh a, [Cells]
-	
-	; mask data
-	and a, b
-	
-	; load alive count
-	ldh a, [Alive]
-
-	jr z, .dead
-.alive
-	; check if there is two or three neighbors
-	cp a, 2
-	ret c
-	cp a, 4
-	ret nc
-	
-.writealive
-	; add mask to result
-	ldh a, [Result]
-	or a, b
-	ldh [Result], a
-	ret
-	
-.dead
-	; check if there is three neighbors
-	cp a, 3
-	jr z, .writealive
-
-.writedead	
-	ret	
 
 SECTION "V-Blank Interrupt Handler", ROM0[$40]
 VBlankInterruptHandler:
 	; save registers
 	push af
-	push de
 	push bc
+	push de
 	push hl
     
 	; render
@@ -574,8 +548,8 @@ SECTION "LCD Stat Interrupt Handler", ROM0[$48]
 LCDStatInterruptHandler:
 	; save registers
 	push af
-	push de
 	push bc
+	push de
 	push hl
     
 	; render
@@ -583,14 +557,11 @@ LCDStatInterruptHandler:
 	
 SECTION "Render", ROM0
 Render:	
-	; check there are lines to render
-	ldh a, [LinesLeft]
-	and a
-	jr z, .exit
-
 	; check there are tiles to render
+	ldh a, [LinesLeft]
+	ld b, a
 	ldh a, [TilesLeft]
-	and a
+	or b
 	jr z, .exit
 
 .render	
@@ -628,12 +599,13 @@ Render:
 	jr nz, .loop
 
 	; go to next line
-	push de
-	ld de, 32 - 20
-	add hl, de
-	pop de
-	ld c, 20
-
+	ld a, l
+	add a, 32 - 20
+	ld l, a
+	jr nc, .nocarry
+	inc h
+.nocarry
+	
 	; loop while there are lines to render
 	ld c, LOW(LinesLeft)
 	ld a, [$FF00+c]
@@ -643,6 +615,7 @@ Render:
 
 	ld a, 20
 	ldh [TilesLeft], a
+	ld c, a
 
 	jr .nextline
 
@@ -661,8 +634,8 @@ Render:
 .exit
 	; restore registers saved in interrupt handler
 	pop hl
-	pop bc
 	pop de
+	pop bc
 	pop af
 
 	; return from v-blank or lcd interrupt
@@ -708,13 +681,6 @@ LeftColumn:        dw   1,   21,   20,   39, 19,  -1, -20, -19
 RightColumn:       dw -19,    1,   20,   19, -1, -21, -20, -39
 Inner:             dw   1,   21,   20,   19, -1, -21, -20, -19
 
-SECTION "Game of Life neighboring masks", ROM0
-; order matters      I,  R, BR,  B, BL,  L, TL,  T, TR, SELF 
-TopLeftMask:     db 14,  0,  0,  0,  0, 10,  8, 12,  0,    1
-TopRightMask:    db 13,  5,  0,  0,  0,  0,  0, 12,  4,    2
-BottomLeftMask:  db 11,  0,  0,  3,  2, 10,  0,  0,  0,    4
-BottomRightMask: db  7,  5,  1,  3,  0,  0,  0,  0,  0,    8
-
 SECTION "Bits Set", ROM0, ALIGN[4]
 BitsSet:
 	db 0;  0 = 0000
@@ -737,9 +703,9 @@ BitsSet:
 SECTION "Default Map", ROM0
 DefaultMap:
 	; 20x18 map with a glider on the top left corner
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 1, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	db 0, 9,12, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 3, 1, 0, 0, 0, 0, 0, 1, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	db 0, 0, 0, 0, 0, 0, 0, 9,12, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
