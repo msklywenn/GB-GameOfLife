@@ -37,8 +37,7 @@ AddLiveNeighbors: MACRO
 	; load current 2x2 cell and mask out bits that are not neighbors
 	ld c, LOW(Cells + \1)
 	ld a, [$FF00+c]
-	ld b, \2
-	and a, b
+	and a, \2
 	
 	; count bits set
 	ld e, a
@@ -71,14 +70,11 @@ Conway: MACRO
 	AddLiveNeighbors (1 + (\2 + 1) % 8), \4
 	AddLiveNeighbors (1 + (\2 + 2) % 8), \5
 	
-	; load current group mask
-	ld b, (~\1) & $F
-	
 	; load current cell group
 	ldh a, [Cells]
 	
 	; mask data
-	and a, b
+	and a, (~\1) & $F
 	
 	; put alive neighbors in A
 	ld a, h
@@ -94,7 +90,7 @@ Conway: MACRO
 .writealive\@
 	; add mask to result
 	ld a, l
-	add a, b
+	add a, (~\1) & $F
 	ld l, a
 	jr .writedead\@
 	
