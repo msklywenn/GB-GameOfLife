@@ -375,7 +375,9 @@ Start:
 	
 	jp .mainloop
 
-CountLiveNeighbors: MACRO
+AddLiveNeighbors: MACRO
+	; H register will store number of alive neighbors
+
 	; load current cell and mask out bits that are not neighbors
 	ld c, LOW(Cells + \1)
 	ld a, [$FF00+c]
@@ -387,23 +389,27 @@ CountLiveNeighbors: MACRO
 	add a, e
 	ld e, a
 	ld a, [de]
-	ld b, a
-	
+
 	; add to alive
-	ldh a, [Alive]
-	add a, b
-	ldh [Alive], a
+	add a, h
+	ld h, a
 ENDM
 	
 Conway: MACRO
+	; \1 = mask for neighbors in inner cell
+	; \2 = first useful neighbor 2x2 cell
+	; \3 = mask for first useful neighbor 2x2 cell
+	; \4 = mask for second useful neighbor 2x2 cell
+	; \5 = mask for third useful neighbor 2x2 cell
+
 	; reset alive counter
-	xor a
-	ldh [Alive], a
+	ld h, 0
 	
-	CountLiveNeighbors 0, \1
-	CountLiveNeighbors (1 + (\2 + 0) % 8), \3
-	CountLiveNeighbors (1 + (\2 + 1) % 8), \4
-	CountLiveNeighbors (1 + (\2 + 2) % 8), \5
+	; Check all neighbors
+	AddLiveNeighbors 0, \1
+	AddLiveNeighbors (1 + (\2 + 0) % 8), \3
+	AddLiveNeighbors (1 + (\2 + 1) % 8), \4
+	AddLiveNeighbors (1 + (\2 + 2) % 8), \5
 	
 	; load current group mask
 	ld b, (~\1) & $F
@@ -414,8 +420,8 @@ Conway: MACRO
 	; mask data
 	and a, b
 	
-	; load alive count
-	ldh a, [Alive]
+	; put alive neighbors in A
+	ld a, h
 
 	jr z, .dead\@
 ;.alive
@@ -656,7 +662,6 @@ Buffer1: ds 20 * 18
 SECTION "Compute Memory", HRAM
 Old: ds 2 ; pointer to bufferX
 New: ds 2 ; pointer to bufferX
-Alive: ds 1
 XLoop: ds 1
 YLoop: ds 1
 Cells: ds 9
