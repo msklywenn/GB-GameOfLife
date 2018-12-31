@@ -31,7 +31,8 @@ MemorySet:
 
 AddLiveNeighbors: MACRO
 	; H register will be incremented with number of alive neighbors
-	; destroys A, B, C, D, E, does not touch L
+	; destroys A, B, C, E, does not touch L nor D
+	; D must be high byte of a BitsSet table (for 0..15)
 
 	; load current 2x2 cell and mask out bits that are not neighbors
 	ld c, LOW(Cells + \1)
@@ -40,7 +41,6 @@ AddLiveNeighbors: MACRO
 	and a, b
 	
 	; count bits set
-	ld d, HIGH(BitsSet)
 	ld e, a
 	ld a, [de]
 
@@ -61,6 +61,9 @@ Conway: MACRO
 
 	; reset alive counter
 	ld h, 0
+	
+	; set high byte of DE to BitsSet high address
+	ld d, HIGH(BitsSet)
 	
 	; Check all neighbors
 	AddLiveNeighbors 0, \1
