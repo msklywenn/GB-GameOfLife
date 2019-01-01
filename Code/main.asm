@@ -50,6 +50,18 @@ AddLiveNeighbors: MACRO
 	add a, h
 	ld h, a
 ENDM
+
+SECTION "Game of life resolution table", ROM0, ALIGN[8]
+ResolutionTable:
+	db 0, 0, 0,15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 0
+	db 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 1
+	db 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 2
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 3
+	db 0, 0, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 4
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 5
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 6
+	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 7
+	db 0, 0, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 8
 	
 Conway: MACRO
 	; \1 = mask for neighbors in inner cell
@@ -79,37 +91,33 @@ Conway: MACRO
 	; mask data
 	and a, (~\1) & $F
 	
-	; put alive neighbors in A
-	ld a, h
+	; multiply by 16
+	rla ; ..x2
+	rla ; ..x4
+	rla ; ..x8
+	rla ; ..x16
 
-	jr z, .dead\@
-;.alive
-	; check if there is two or three neighbors
-	cp a, 2
-	jr c, .writedead\@
-	cp a, 4
-	jr nc, .writedead\@
+	; add alive neighbor count
+	add a, h
 	
-.writealive\@
-	; add mask to result
-	ld a, b
-	add a, (~\1) & $F
+	; load result
+	ld d, HIGH(ResolutionTable)
+	ld e, a
+	ld a, [de]
+	
+	; mask result
+	and a, (~\1) & $F
+	
+	; add to global result
+	or a, b
 	ld b, a
-	jr .writedead\@
-	
-.dead\@
-	; check if there is three neighbors
-	cp a, 3
-	jr z, .writealive\@
-
-.writedead\@
 ENDM
 
 LoadCellToHRAM: MACRO
 	; \1 = offset to Old pointer
-	; destroys A, H, L
+	; destroys A
 	; increments C
-	; does not touch B, D, E
+	; does not touch B, D, E, H, L
 	
 	; load neighbor
 	ld a, [hl]
