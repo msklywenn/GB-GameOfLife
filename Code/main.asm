@@ -107,27 +107,16 @@ ENDM
 
 LoadCellToHRAM: MACRO
 	; \1 = offset to Old pointer
-	; destroys A, D, E, H, L
+	; destroys A, H, L
 	; increments C
-	
-	; load old pointer into hl
-	ld hl, Old
-	ld a, [hl+]
-	ld h, [hl]
-	ld l, a
-	
-	; add offset
-IF \1 != 0
-	ld de, \1
-	add hl, de
-ENDC
+	; does not touch B, D, E
 	
 	; load neighbor
 	ld a, [hl]
 	
 	; store in HRAM
 	ld [$FF00+c], a
-	
+
 	; increment hram pointer
 	inc c
 ENDM
@@ -140,16 +129,38 @@ ConwayGroup: MACRO
 	; pointer to HRAM
 	ld c, LOW(Cells)
 	
+	; load old pointer into hl
+	ld hl, Old
+	ld a, [hl+]
+	ld h, [hl]
+	ld l, a
+	
 	; load current 2x2 cell then neighbor 2x2 cells to HRAM from old buffer
-	LoadCellToHRAM 0
-	LoadCellToHRAM \1
-	LoadCellToHRAM \2
-	LoadCellToHRAM \3
-	LoadCellToHRAM \4
-	LoadCellToHRAM \5
-	LoadCellToHRAM \6
-	LoadCellToHRAM \7
-	LoadCellToHRAM \8
+	LoadCellToHRAM
+	ld de, \1
+	add hl, de
+	LoadCellToHRAM
+	ld de, \2 - \1
+	add hl, de
+	LoadCellToHRAM
+	ld de, \3 - \2
+	add hl, de
+	LoadCellToHRAM
+	ld de, \4 - \3
+	add hl, de
+	LoadCellToHRAM
+	ld de, \5 - \4
+	add hl, de
+	LoadCellToHRAM
+	ld de, \6 - \5
+	add hl, de
+	LoadCellToHRAM
+	ld de, \7 - \6
+	add hl, de
+	LoadCellToHRAM
+	ld de, \8 - \7
+	add hl, de
+	LoadCellToHRAM
 
 	; reset result
 	xor a
