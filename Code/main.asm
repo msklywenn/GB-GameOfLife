@@ -50,21 +50,9 @@ AddLiveNeighbors: MACRO
 	add a, h
 	ld h, a
 ENDM
-
-SECTION "Game of life resolution table", ROM0, ALIGN[8]
-ResolutionTable:
-	db 0, 0, 0,15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 0
-	db 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 1
-	db 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 2
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 3
-	db 0, 0, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 4
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 5
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 6
-	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 7
-	db 0, 0, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 8
 	
 Conway: MACRO
-	; \1 = mask for neighbors in inner cell
+	; \1 = bit of target cell in 2x2 group
 	; \2 = first useful neighbor 2x2 cell
 	; \3 = mask for first useful neighbor 2x2 cell
 	; \4 = mask for second useful neighbor 2x2 cell
@@ -80,37 +68,29 @@ Conway: MACRO
 	ld d, HIGH(BitsSet)
 	
 	; Check all neighbors
-	AddLiveNeighbors 0, \1
+	AddLiveNeighbors 0, (~(1 << \1)) & $F
 	AddLiveNeighbors (1 + (\2 + 0) % 8), \3
 	AddLiveNeighbors (1 + (\2 + 1) % 8), \4
 	AddLiveNeighbors (1 + (\2 + 2) % 8), \5
 	
-	; load current cell group
+	; if there are 3 neighbors, it's always alive
+	ld a, h
+	cp a, 3
+	jr z, .alive\@
+	
+	; if there are only 2 neighbors, it's alive only if it was dead
+	cp a, 2
+	jr nz, .dead\@
+	
+	; load current old cell and test if alive
 	ldh a, [Cells]
-	
-	; mask data
-	and a, (~\1) & $F
-	
-	; multiply by 16
-	rla ; ..x2
-	rla ; ..x4
-	rla ; ..x8
-	rla ; ..x16
+	bit \1, a
+	jr z, .dead\@
 
-	; add alive neighbor count
-	add a, h
+.alive\@
+	set \1, b
 	
-	; load result
-	ld d, HIGH(ResolutionTable)
-	ld e, a
-	ld a, [de]
-	
-	; mask result
-	and a, (~\1) & $F
-	
-	; add to global result
-	or a, b
-	ld b, a
+.dead\@
 ENDM
 
 LoadCellToHRAM: MACRO
@@ -178,10 +158,10 @@ ConwayGroup: MACRO
 	ld b, a
 	
 	; compute all 4 cells in current 2x2 cell
-	Conway 14, 4, 10, 8, 12
-	Conway 13, 6, 12, 4, 5
-	Conway 11, 2, 3, 2, 10
-	Conway 7, 0, 5, 1, 3
+	Conway 0, 4, 10, 8, 12
+	Conway 1, 6, 12, 4, 5
+	Conway 2, 2, 3, 2, 10
+	Conway 3, 0, 5, 1, 3
 	
 	; load new pointer
 	ld hl, New
@@ -450,16 +430,16 @@ Start:
 	inc [hl]
 
 	; wait end of rendering (not necessary, update is way slower than rendering...)
-;.waitRender
-;	ldh a, [LinesLeft]
-;	ld b, a
-;	ldh a, [TilesLeft]
-;	or a, b
-;	jr z, .swap
-;	halt
-;	jr .waitRender
-;
-;.swap
+.waitRender
+	ldh a, [LinesLeft]
+	ld b, a
+	ldh a, [TilesLeft]
+	or a, b
+	jr z, .swap
+	halt
+	jr .waitRender
+
+.swap
 	; enable only v-blank interrupt
 	di
 	ld a, IEF_VBLANK
