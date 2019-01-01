@@ -28,7 +28,7 @@ MemorySet:
 	or c
 	jr nz, MemorySet
 	ret
-
+	
 AddLiveNeighbors: MACRO
 	; \1 is offset in Cells table in HRAM
 	; \2 is mask for 2x2 cell
@@ -129,6 +129,17 @@ LoadCellToHRAM: MACRO
 	inc c
 ENDM
 
+IncHL: MACRO
+IF (\1) == 1
+	inc hl
+ELIF (\1) == -1
+	dec hl
+ELSE
+	ld de, (\1)
+	add hl, de
+ENDC
+ENDM
+
 SECTION "Load cell group and 8 neighbors to HRAM, then compute", ROM0	
 	; \1..\8 offset to neighbors
 	; destroys all registers
@@ -145,29 +156,21 @@ ConwayGroup: MACRO
 	
 	; load current 2x2 cell then neighbor 2x2 cells to HRAM from old buffer
 	LoadCellToHRAM
-	ld de, \1
-	add hl, de
+	IncHL \1
 	LoadCellToHRAM
-	ld de, \2 - \1
-	add hl, de
+	IncHL \2 - \1
 	LoadCellToHRAM
-	ld de, \3 - \2
-	add hl, de
+	IncHL \3 - \2
 	LoadCellToHRAM
-	ld de, \4 - \3
-	add hl, de
+	IncHL \4 - \3
 	LoadCellToHRAM
-	ld de, \5 - \4
-	add hl, de
+	IncHL \5 - \4
 	LoadCellToHRAM
-	ld de, \6 - \5
-	add hl, de
+	IncHL \6 - \5
 	LoadCellToHRAM
-	ld de, \7 - \6
-	add hl, de
+	IncHL \7 - \6
 	LoadCellToHRAM
-	ld de, \8 - \7
-	add hl, de
+	IncHL \8 - \7
 	LoadCellToHRAM
 
 	; reset result
@@ -304,8 +307,14 @@ Start:
 	ld [rLCDC], a
 	
 .mainloop
-
+	; start rendering
+	ld a, 20
+	ldh [TilesLeft], a
+	ld a, 18
+	ldh [LinesLeft], a
+	
 	; enable v-blank and lcd stat interrupt for h-blank
+	; rendering routine is too slow for lcdc right now so disabled
 	ld a, IEF_VBLANK; | IEF_LCDC
 	ld [rIE], a
 	xor a
@@ -440,24 +449,17 @@ Start:
 	ld hl, Old
 	inc [hl]
 
-	; wait end of rendering
-.waitLines
-	; check high byte of TotalToRender
-	ldh a, [LinesLeft]
-	or a
-	jr z, .waitTiles
-	halt
-	jr .waitLines
-	
-.waitTiles
-	; check low byte of TotalToRender
-	ldh a, [TilesLeft]
-	or a
-	jr z, .swap
-	halt
-	jr .waitTiles
-
-.swap
+	; wait end of rendering (not necessary, update is way slower than rendering...)
+;.waitRender
+;	ldh a, [LinesLeft]
+;	ld b, a
+;	ldh a, [TilesLeft]
+;	or a, b
+;	jr z, .swap
+;	halt
+;	jr .waitRender
+;
+;.swap
 	; enable only v-blank interrupt
 	di
 	ld a, IEF_VBLANK
@@ -518,12 +520,6 @@ Start:
 	ldh [Old], a
 	ldh [Rendered], a
 	ldh [Video], a
-	
-	; set total to render to restart rendering
-	ld a, 20
-	ldh [TilesLeft], a
-	ld a, 18
-	ldh [LinesLeft], a
 	
 	jp .mainloop
 
