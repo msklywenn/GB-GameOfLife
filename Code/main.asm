@@ -30,9 +30,12 @@ MemorySet:
 	ret
 
 AddLiveNeighbors: MACRO
-	; H register will be incremented with number of alive neighbors
-	; destroys A, B, C, E, does not touch L nor D
+	; \1 is offset in Cells table in HRAM
+	; \2 is mask for 2x2 cell
 	; D must be high byte of a BitsSet table (for 0..15)
+	; H register will be incremented with number of alive neighbors
+	; destroys A, C, E
+	; does not touch B, L
 
 	; load current 2x2 cell and mask out bits that are not neighbors
 	ld c, LOW(Cells + \1)
@@ -55,7 +58,7 @@ Conway: MACRO
 	; \4 = mask for second useful neighbor 2x2 cell
 	; \5 = mask for third useful neighbor 2x2 cell
 	;
-	; L will be updated with cell result
+	; B will be updated with cell result
 	; destroys all other registers
 
 	; reset alive counter
@@ -89,9 +92,9 @@ Conway: MACRO
 	
 .writealive\@
 	; add mask to result
-	ld a, l
+	ld a, b
 	add a, (~\1) & $F
-	ld l, a
+	ld b, a
 	jr .writedead\@
 	
 .dead\@
@@ -150,16 +153,13 @@ ConwayGroup: MACRO
 
 	; reset result
 	xor a
-	ld l, a
+	ld b, a
 	
 	; compute all 4 cells in current 2x2 cell
 	Conway 14, 4, 10, 8, 12
 	Conway 13, 6, 12, 4, 5
 	Conway 11, 2, 3, 2, 10
 	Conway 7, 0, 5, 1, 3
-	
-	; move result to B
-	ld b, l
 	
 	; load new pointer
 	ld hl, New
