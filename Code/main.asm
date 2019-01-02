@@ -29,17 +29,56 @@ MemorySet:
 	jr nz, MemorySet
 	ret
 	
+AddConstantToHL: MACRO
+IF \1 == 1
+	inc hl
+ELIF \1 == -1
+	dec hl
+ELIF \1 > 0 && \1 <= 255
+	ld a, l
+	add a, \1
+	ld l, a
+	jr nc, .nocarry1\@
+	inc h
+.nocarry1\@
+ELIF \1 > -255 && \1 < 0
+	ld a, l
+	sub a, -(\1)
+	ld l, a
+	jr nc, .nocarry2\@
+	ld l, a
+	dec h
+.nocarry2\@
+ELIF \1 > 255
+	ld a, l
+	add a, LOW(\1)
+	ld l, a
+	ld a, h
+	adc a, HIGH(\1)
+	ld h, a
+ELIF \1 <= -255
+	ld a, l
+	sub a, LOW(-(\1))
+	ld l, a
+	ld a, h
+	sbc a, HIGH(-(\1))
+	ld h, a
+ELSE
+ENDC
+ENDM
+	
 AddLiveNeighbors: MACRO
-	; \1 is offset in Cells table in HRAM
+	; \1 offset 
 	; \2 is mask for 2x2 cell
 	; D must be high byte of a BitsSet table (for 0..15)
-	; H register will be incremented with number of alive neighbors
-	; destroys A, C, E
-	; does not touch B, L
+	; C register will be incremented with number of alive neighbors
+	; moves HL with given offset
+	; destroys A, E
+	; does not touch B
 
 	; load current 2x2 cell and mask out bits that are not neighbors
-	ld c, LOW(Cells + \1)
-	ld a, [$FF00+c]
+	AddConstantToHL \1
+	ld a, [hl]
 	and a, \2
 	
 	; count bits set
@@ -47,34 +86,29 @@ AddLiveNeighbors: MACRO
 	ld a, [de]
 
 	; add to alive
-	add a, h
-	ld h, a
+	add a, c
+	ld c, a
 ENDM
 	
 Conway: MACRO
 	; \1 = bit of target cell in 2x2 group
-	; \2 = first useful neighbor 2x2 cell
-	; \3 = mask for first useful neighbor 2x2 cell
-	; \4 = mask for second useful neighbor 2x2 cell
-	; \5 = mask for third useful neighbor 2x2 cell
+	; (\2, \3), (\4, \5), (\6, \7) = (offset to neighbor, neighbor mask)
 	;
 	; B will be updated with cell result
 	; destroys all other registers
 
 	; reset alive counter
-	ld h, 0
-	
-	; set high byte of DE to BitsSet high address
-	ld d, HIGH(BitsSet)
+	ld c, 0
 	
 	; Check all neighbors
 	AddLiveNeighbors 0, (~(1 << \1)) & $F
-	AddLiveNeighbors (1 + (\2 + 0) % 8), \3
-	AddLiveNeighbors (1 + (\2 + 1) % 8), \4
-	AddLiveNeighbors (1 + (\2 + 2) % 8), \5
+	AddLiveNeighbors \2, \3
+	AddLiveNeighbors \4 - \2, \5
+	AddLiveNeighbors \6 - \4, \7
+	AddConstantToHL -(\6)
 	
 	; if there are 3 neighbors, it's always alive
-	ld a, h
+	ld a, c
 	cp a, 3
 	jr z, .alive\@
 	
@@ -83,7 +117,7 @@ Conway: MACRO
 	jr nz, .dead\@
 	
 	; load current old cell and test if alive
-	ldh a, [Cells]
+	ld a, [hl]
 	bit \1, a
 	jr z, .dead\@
 
@@ -93,81 +127,32 @@ Conway: MACRO
 .dead\@
 ENDM
 
-LoadCellToHRAM: MACRO
-	; \1 = offset to Old pointer
-	; destroys A
-	; increments C
-	; does not touch B, D, E, H, L
-	
-	; load neighbor
-	ld a, [hl]
-	
-	; store in HRAM
-	ld [$FF00+c], a
-
-	; increment hram pointer
-	inc c
-ENDM
-
-IncHL: MACRO
-IF (\1) == 1
-	inc hl
-ELIF (\1) == -1
-	dec hl
-ELSE
-	ld de, (\1)
-	add hl, de
-ENDC
-ENDM
-
 SECTION "Load cell group and 8 neighbors to HRAM, then compute", ROM0	
 	; \1..\8 offset to neighbors
 	; destroys all registers
 ConwayGroup: MACRO 
 
-	; pointer to HRAM
-	ld c, LOW(Cells)
+	ld d, HIGH(BitsSet)
 	
 	; load old pointer into hl
-	ld hl, Old
-	ld a, [hl+]
-	ld h, [hl]
+	ldh a, [Old]
+	ld h, a
+	ldh a, [Progress]
 	ld l, a
 	
-	; load current 2x2 cell then neighbor 2x2 cells to HRAM from old buffer
-	LoadCellToHRAM
-	IncHL \1
-	LoadCellToHRAM
-	IncHL \2 - \1
-	LoadCellToHRAM
-	IncHL \3 - \2
-	LoadCellToHRAM
-	IncHL \4 - \3
-	LoadCellToHRAM
-	IncHL \5 - \4
-	LoadCellToHRAM
-	IncHL \6 - \5
-	LoadCellToHRAM
-	IncHL \7 - \6
-	LoadCellToHRAM
-	IncHL \8 - \7
-	LoadCellToHRAM
-
 	; reset result
 	xor a
 	ld b, a
 	
-	; compute all 4 cells in current 2x2 cell
-	Conway 0, 4, 10, 8, 12
-	Conway 1, 6, 12, 4, 5
-	Conway 2, 2, 3, 2, 10
-	Conway 3, 0, 5, 1, 3
+	; compute all 4 cells in current 2x2 cell group
+	Conway 0, \5, 10, \6,  8, \7, 12
+	Conway 1, \1,  5, \7, 12, \8,  4
+	Conway 2, \5, 10, \4,  2, \3,  3
+	Conway 3, \1,  5, \3,  3, \2,  1
 	
 	; load new pointer
-	ld hl, New
-	ld a, [hl+]
-	ld h, [hl]
-	ld l, a
+	ldh a, [New]
+	ld h, a
 	
 	; save result to new buffer
 	ld [hl], b
@@ -200,28 +185,17 @@ Start:
 
 	; set old and rendered pointers to buffer0
 	ld a, HIGH(Buffer0)
-	ldh [Old + 1], a
+	ldh [Old], a
 	ldh [Rendered + 1], a
 
 	; set new pointer to buffer1
 	ld a, HIGH(Buffer1)
-	ldh [New + 1], a
+	ldh [New], a
 
 	; set video pointer to first tilemap
 	ld a, HIGH(_SCRN0)
 	ldh [Video + 1], a
 	
-	; reset low bytes of pointers (all buffers are aligned)
-	xor a
-	ldh [New], a
-	ldh [Old], a
-	ldh [Rendered], a
-	ldh [Video], a
-	
-	; set lines and tiles left to 0 to avoid rendering in interrupts 
-	ldh [LinesLeft], a
-	ldh [TilesLeft], a
-
 	; enable v-blank interrupt
 	ld a, IEF_VBLANK
 	ld [rIE], a
@@ -260,23 +234,11 @@ Start:
 	ld bc, 32 * 32 * 2
 	call MemorySet
 	
-	; clear screen (both buffers)
-	ld hl, _SCRN1
-	ld d, 0 ; empty tile
-	ld bc, 32 * 32
-	call MemorySet
-	
 	; init buffer 0
 	ld hl, Buffer0
 	ld de, DefaultMap
 	ld bc, 20 * 18
 	call MemoryCopy
-	
-	; set total to render to start rendering
-	ld a, 18
-	ldh [LinesLeft], a
-	ld a, 20
-	ldh [TilesLeft], a
 	
 	; enable h-blank interrupt in lcd stat
 	ld a, STATF_MODE00
@@ -287,6 +249,12 @@ Start:
 	ld [rLCDC], a
 	
 .mainloop
+	; reset low bytes of pointers
+	xor a
+	ldh [Progress], a
+	ldh [Rendered], a
+	ldh [Video], a
+
 	; start rendering
 	ld a, 20
 	ldh [TilesLeft], a
@@ -306,9 +274,7 @@ Start:
 	ConwayGroup 1, 21, 20, 39, 19, 359, 340, 341
 	
 	; advance to next cell in top row
-	ld hl, New
-	inc [hl]
-	ld hl, Old
+	ld hl, Progress
 	inc [hl]
 
 	; handle all cells in top row except corners
@@ -320,9 +286,7 @@ Start:
 	ConwayGroup 1, 21, 20, 19, -1, 339, 340, 341
 	
 	; advance to next cell in top row
-	ld hl, New
-	inc [hl]
-	ld hl, Old
+	ld hl, Progress
 	inc [hl]
 	
 	; loop horizontally
@@ -335,9 +299,7 @@ Start:
 	ConwayGroup -19, 1, 20, 19, -1, 339, 340, 321
 	
 	; advance pointers to next row
-	ld hl, New
-	inc [hl]
-	ld hl, Old
+	ld hl, Progress
 	inc [hl]
 	
 	ld a, 16
@@ -348,9 +310,7 @@ Start:
 	ConwayGroup 1, 21, 20, 39, 19, -1, -20, -19
 	
 	; advance to next cell
-	ld hl, New
-	inc [hl]
-	ld hl, Old
+	ld hl, Progress
 	inc [hl]
 
 	ld a, 18
@@ -361,14 +321,12 @@ Start:
 	ConwayGroup 1, 21, 20, 19, -1, -21, -20, -19
 	
 	; advance to next cell
-	ld hl, New
-	inc [hl]
-	ld hl, Old
+	ld hl, Progress
 	inc [hl]
 	jr nz, .noCarry
-		inc hl ; old+1
+		ld hl, Old
 		inc [hl]
-		ld hl, New + 1
+		ld hl, New
 		inc [hl]
 .noCarry
 	
@@ -382,9 +340,7 @@ Start:
 	ConwayGroup -19, 1, 20, 19, -1, -21, -20, -39
 
 	; advance to next row
-	ld hl, New
-	inc [hl]
-	ld hl, Old
+	ld hl, Progress
 	inc [hl]
 	
 	; loop vertically
@@ -397,9 +353,7 @@ Start:
 	ConwayGroup 1, -339, -340, -321, 19,  -1, -20, -19
 	
 	; advance to next cell in bottom row
-	ld hl, New
-	inc [hl]
-	ld hl, Old
+	ld hl, Progress
 	inc [hl]
 
 	; handle all cells in bottom row except corners
@@ -411,9 +365,7 @@ Start:
 	ConwayGroup 1, -339, -340, -341, -1, -21, -20, -19
 	
 	; advance to next cell in top row
-	ld hl, New
-	inc [hl]
-	ld hl, Old
+	ld hl, Progress
 	inc [hl]
 	
 	; loop horizontally
@@ -425,10 +377,6 @@ Start:
 .bottomright
 	ConwayGroup -19, -359, -340, -341, -1, -21, -20, -39
 	
-	; increment old pointer to first byte after buffer
-	ld hl, Old
-	inc [hl]
-
 	; wait end of rendering (not necessary, update is way slower than rendering...)
 .waitRender
 	ldh a, [LinesLeft]
@@ -451,19 +399,19 @@ Start:
 	halt
 
 	; check which buffer has just been rendered
-	ldh a, [Old + 1]
+	ldh a, [Old]
 	cp a, HIGH(Buffer1)
 	jr nc, .newToBuffer1
 
 .newToBuffer0
 	; set old and rendered pointers to buffer1
 	ld a, HIGH(Buffer1)
-	ldh [Old + 1], a
+	ldh [Old], a
 	ldh [Rendered + 1], a
 
 	; set new pointer to buffer0
 	ld a, HIGH(Buffer0)
-	ldh [New + 1], a
+	ldh [New], a
 
 	; set video pointer to first tilemap
 	ld a, HIGH(_SCRN1)
@@ -478,12 +426,12 @@ Start:
 .newToBuffer1
 	; set old and rendered pointers to buffer0
 	ld a, HIGH(Buffer0)
-	ldh [Old + 1], a
+	ldh [Old], a
 	ldh [Rendered + 1], a
 
 	; set new pointer to buffer1
 	ld a, HIGH(Buffer1)
-	ldh [New + 1], a
+	ldh [New], a
 
 	; set video pointer to second tilemap
 	ld a, HIGH(_SCRN0)
@@ -494,12 +442,6 @@ Start:
 	ld [rLCDC], a
 
 .resetLowBytes
-	; reset low bytes of pointers
-	xor a
-	ldh [New], a
-	ldh [Old], a
-	ldh [Rendered], a
-	ldh [Video], a
 	
 	jp .mainloop
 
@@ -624,11 +566,11 @@ SECTION "Automata buffer 1", WRAM0, ALIGN[9]
 Buffer1: ds 20 * 18
 
 SECTION "Compute Memory", HRAM
-Old: ds 2 ; pointer to bufferX
-New: ds 2 ; pointer to bufferX
+New: ds 1 ; high byte of pointer to bufferX
+Old: ds 1 ; high byte of pointer to bufferX
+Progress: ds 1; low byte of pointer to bufferX, common to new and old
 XLoop: ds 1
 YLoop: ds 1
-Cells: ds 9 ; cells loaded from old buffer, order is: self then right, clockwise
 
 SECTION "Render Memory", HRAM
 LinesLeft: ds 1     ; number of lines left to render
