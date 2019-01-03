@@ -252,7 +252,7 @@ Start:
 	
 	; enable v-blank and lcd stat interrupt for h-blank
 	; rendering routine is too slow for lcdc right now so disabled
-	ld a, IEF_VBLANK; | IEF_LCDC
+	ld a, IEF_VBLANK ;| IEF_LCDC
 	ld [rIE], a
 	xor a
 	ei
@@ -482,7 +482,8 @@ LCDStatInterruptHandler:
 	; copy one byte
 	ld a, [hl+]
 	ld [de], a
-	inc e
+	inc e ; it will never overflow since it only increments
+	      ; up to 20 bytes starting on 32 byte boundaries
 
 	; loop while there are tiles to render
 	dec c
