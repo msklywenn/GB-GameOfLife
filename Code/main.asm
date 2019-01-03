@@ -446,9 +446,7 @@ LCDStatInterruptHandler:
     
 	; check there are tiles to render
 	ldh a, [LinesLeft]
-	ld b, a
-	ldh a, [TilesLeft]
-	or b
+	or a
 	jr z, .exit
 
 	push de
