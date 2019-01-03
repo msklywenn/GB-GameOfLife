@@ -181,8 +181,9 @@ ENDR
 SECTION "Main", ROM0[$150]
 Start:
 	; shut sound off
+	xor a
 	ld [rNR52], a
-
+	
 	; set old and rendered pointers to buffer0
 	ld a, HIGH(Buffer0)
 	ldh [Old], a
@@ -209,7 +210,7 @@ Start:
 	; disable screen
 	xor a
 	ld [rLCDC], a
-	
+
 	; load bg palette [0=black, 1=dark gray, 2=light gray, 3=white]
 	ld a, %11100100
 	ld [rBGP], a
@@ -377,7 +378,7 @@ Start:
 .bottomright
 	ConwayGroup -19, -359, -340, -341, -1, -21, -20, -39
 	
-	; wait end of rendering (not necessary, update is way slower than rendering...)
+	; wait end of rendering
 .waitRender
 	ldh a, [LinesLeft]
 	ld b, a
@@ -489,11 +490,9 @@ Render:
 	ld h, [hl]
 	ld l, a
 	
-	; init tile counter in C
+	; load counters
 	ldh a, [TilesLeft]
 	ld c, a
-	
-	; init line counter in B
 	ldh a, [LinesLeft]
 	ld b, a
 
@@ -524,7 +523,8 @@ Render:
 	dec b
 	jr z, .finish
 	
-	ld c, 20 ; reset tile counter
+	; reset tile counter
+	ld c, 20 
 
 	jr .loop
 
