@@ -158,18 +158,6 @@ ConwayGroup: MACRO
 	ld [hl], b
 ENDM
 
-SECTION "Timer Interrupt Handler", ROM0[$50]
-TimerInterruptHandler:
-	reti
-
-SECTION "Serial Interrupt Handler", ROM0[$58]
-SerialInterruptHandler:
-	reti
-
-SECTION "Joypad Interrupt Handler", ROM0[$60]
-JoypadInterruptHandler:
-	reti
-
 SECTION "Header", ROM0[$100]
 EntryPoint:
     di
@@ -448,34 +436,23 @@ Start:
 
 SECTION "V-Blank Interrupt Handler", ROM0[$40]
 VBlankInterruptHandler:
-	; save registers
-	push af
-	push bc
-	push de
-	push hl
-    
-	; render
-	jp Render
+	jr LCDStatInterruptHandler
 
 SECTION "LCD Stat Interrupt Handler", ROM0[$48]
 LCDStatInterruptHandler:
 	; save registers
 	push af
 	push bc
-	push de
-	push hl
     
-	; render
-	jp Render
-	
-SECTION "Render", ROM0
-Render:	
 	; check there are tiles to render
 	ldh a, [LinesLeft]
 	ld b, a
 	ldh a, [TilesLeft]
 	or b
 	jr z, .exit
+
+	push de
+	push hl
 
 .render	
 	; load buffer pointer into DE
@@ -546,10 +523,11 @@ Render:
 	ld a, d
 	ldh [Rendered + 1], a
 
-.exit
 	; restore registers saved in interrupt handler
 	pop hl
 	pop de
+
+.exit
 	pop bc
 	pop af
 
