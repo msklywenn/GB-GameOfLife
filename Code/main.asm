@@ -448,6 +448,9 @@ LCDStatInterruptHandler:
 	ldh a, [LinesLeft]
 	or a
 	jr z, .exit
+	
+	; move lines left to B
+	ld b, a
 
 	push de
 	push hl
@@ -468,8 +471,6 @@ LCDStatInterruptHandler:
 	; load counters
 	ldh a, [TilesLeft]
 	ld c, a
-	ldh a, [LinesLeft]
-	ld b, a
 
 .loop
 	; check we can still render
