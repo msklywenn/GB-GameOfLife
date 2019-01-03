@@ -456,13 +456,13 @@ LCDStatInterruptHandler:
 
 .render	
 	; load buffer pointer into DE
-	ld hl, Rendered
+	ld hl, Video
 	ld a, [hl+]
 	ld d, [hl]
 	ld e, a	
 
 	; load video pointer into HL
-	ld hl, Video
+	ld hl, Rendered
 	ld a, [hl+]
 	ld h, [hl]
 	ld l, a
@@ -480,20 +480,20 @@ LCDStatInterruptHandler:
 	jr nz, .finish
 
 	; copy one byte
-	ld a, [de]
-	ld [hl+], a
-	inc de
+	ld a, [hl+]
+	ld [de], a
+	inc e
 
 	; loop while there are tiles to render
 	dec c
 	jr nz, .loop
 
 	; go to next line
-	ld a, l
+	ld a, e
 	add a, 32 - 20
-	ld l, a
+	ld e, a
 	jr nc, .nocarry
-	inc h
+	inc d
 .nocarry
 	
 	; loop while there are lines to render
@@ -513,14 +513,14 @@ LCDStatInterruptHandler:
 	ldh [LinesLeft], a
 	
 	; save incremented video pointer and buffer pointer 
-	ld a, l
+	ld a, e
 	ldh [Video], a
-	ld a, h
+	ld a, d
 	ldh [Video + 1], a
 
-	ld a, e
+	ld a, l
 	ldh [Rendered], a
-	ld a, d
+	ld a, h
 	ldh [Rendered + 1], a
 
 	; restore registers saved in interrupt handler
