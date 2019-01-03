@@ -2,6 +2,8 @@ INCLUDE "hardware.inc"
 
 RENDER_IN_HBL EQU 0
 
+EMPTY_BG_TILE EQU 17
+
 _VRAM_BG_TILES EQU $9000
 
 SECTION "Memory Copy", ROM0
@@ -30,6 +32,23 @@ MemorySet:
 	or c
 	jr nz, MemorySet
 	ret
+
+	; \1: sprite ID
+	; \2: X position
+	; \3: Y position
+	; \4: tile number
+	; \5: flags
+SetSprite: MACRO
+	ld hl, _OAMRAM + \1 * 4
+	ld a, \3
+	ld [hl+], a
+	ld a, \2
+	ld [hl+], a
+	ld a, \4
+	ld [hl+], a
+	ld a, \5
+	ld [hl+], a
+ENDM
 	
 AddConstantToHL: MACRO
 IF \1 == 1
@@ -129,7 +148,6 @@ Conway: MACRO
 .dead\@
 ENDM
 
-SECTION "Load cell group and 8 neighbors to HRAM, then compute", ROM0	
 	; \1..\8 offset to neighbors
 	; destroys all registers
 ConwayGroup: MACRO 
@@ -213,6 +231,12 @@ Start:
 	ld de, Tiles
 	ld bc, TilesEnd - Tiles
 	call MemoryCopy
+		
+	; clear OAM
+	ld hl, _OAMRAM
+	ld d, 0
+	ld bc, 40 * 4
+	call MemorySet
 	
 	; set scrolling to (0, 0)
 	xor a
@@ -221,7 +245,7 @@ Start:
 	
 	; clear screen (both buffers)
 	ld hl, _SCRN0
-	ld d, 17 ; empty tile
+	ld d, EMPTY_BG_TILE
 	ld bc, 32 * 32 * 2
 	call MemorySet
 	
@@ -383,14 +407,13 @@ ENDC
 	jr .waitRender
 
 .swap
-	; enable only v-blank interrupt
-	di
+
 IF RENDER_IN_HBL != 0
+	; enable only v-blank interrupt and wait for vbl
 	ld a, IEF_VBLANK
 	ld [rIE], a
 	xor a
 	ldh [rIF], a
-	; wait v-blank
 	halt
 ENDC
 
@@ -540,7 +563,7 @@ LCDStatInterruptHandler:
 
 	; return from v-blank or lcd interrupt
 	reti
-
+	
 ; automata buffers with 4 cells per byte	
 ; 2x2 bytes per cell, bit ordering:
 ;  ___       ___
