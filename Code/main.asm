@@ -1,5 +1,7 @@
 INCLUDE "hardware.inc"
 
+RENDER_IN_HBL EQU 0
+
 _VRAM_BG_TILES EQU $9000
 
 SECTION "Memory Copy", ROM0
@@ -252,7 +254,11 @@ Start:
 	
 	; enable v-blank and lcd stat interrupt for h-blank
 	; rendering routine is too slow for lcdc right now so disabled
-	ld a, IEF_VBLANK ;| IEF_LCDC
+IF RENDER_IN_HBL != 0
+	ld a, IEF_VBLANK | IEF_LCDC
+ELSE
+	ld a, IEF_VBLANK
+ENDC
 	ld [rIE], a
 	xor a
 	ei
@@ -379,13 +385,14 @@ Start:
 .swap
 	; enable only v-blank interrupt
 	di
+IF RENDER_IN_HBL != 0
 	ld a, IEF_VBLANK
 	ld [rIE], a
 	xor a
 	ldh [rIF], a
-	
 	; wait v-blank
 	halt
+ENDC
 
 	; check which buffer has just been rendered
 	ldh a, [Old]
