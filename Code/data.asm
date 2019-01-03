@@ -43,8 +43,14 @@ DefaultMap:
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
-EXPORT Tiles, TilesEnd
+EXPORT BackgroundTiles, BackgroundTilesEnd
 SECTION "Graphics", ROM0
-Tiles:
-INCBIN "Tiles.bin"
-TilesEnd: ds 0
+BackgroundTiles:
+INCBIN "BackgroundTiles.bin"
+BackgroundTilesEnd: ds 0
+
+EXPORT SpriteTiles, SpriteTilesEnd
+SECTION "Graphics", ROM0
+SpriteTiles:
+INCBIN "SpriteTiles.bin"
+SpriteTilesEnd: ds 0

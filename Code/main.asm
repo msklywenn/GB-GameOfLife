@@ -40,10 +40,15 @@ Start:
 	; 16: sprite selection tile
 	; 17: empty tile
 	ld hl, _VRAM_BG_TILES
-	ld de, Tiles
-	ld bc, TilesEnd - Tiles
+	ld de, BackgroundTiles
+	ld bc, BackgroundTilesEnd - BackgroundTiles
 	call MemoryCopy
-		
+	
+	ld hl, _VRAM
+	ld de, SpriteTiles
+	ld bc, SpriteTilesEnd - SpriteTiles
+	call MemoryCopy
+	
 	; clear OAM
 	ld hl, _OAMRAM
 	ld d, 0

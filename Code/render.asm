@@ -136,9 +136,7 @@ EXPORT WaitRender
 SECTION "WaitRender", ROM0
 WaitRender:
 	ldh a, [LinesLeft]
-	ld b, a
-	ldh a, [TilesLeft]
-	or a, b
+	or a
 	ret z
 	halt
 	jr WaitRender
