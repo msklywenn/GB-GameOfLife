@@ -23,11 +23,11 @@ Start:
 
 	xor a
 	ldh [rIF], a
-	
-	; wait for v-blank
-	halt 
+
+	call ScrollNintendoOut
 	
 	; disable screen
+	halt
 	xor a
 	ld [rLCDC], a
 
