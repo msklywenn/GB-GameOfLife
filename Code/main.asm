@@ -488,10 +488,14 @@ Render:
 	ld a, [hl+]
 	ld h, [hl]
 	ld l, a
-
-	; set c to point to tiles left to render
-.nextline
-	ld c, LOW(TilesLeft)
+	
+	; init tile counter in C
+	ldh a, [TilesLeft]
+	ld c, a
+	
+	; init line counter in B
+	ldh a, [LinesLeft]
+	ld b, a
 
 .loop
 	; check we can still render
@@ -505,9 +509,7 @@ Render:
 	inc de
 
 	; loop while there are tiles to render
-	ld a, [$FF00+c]
-	dec a
-	ld [$FF00+c], a
+	dec c
 	jr nz, .loop
 
 	; go to next line
@@ -519,20 +521,21 @@ Render:
 .nocarry
 	
 	; loop while there are lines to render
-	ld c, LOW(LinesLeft)
-	ld a, [$FF00+c]
-	dec a
-	ld [$FF00+c], a
+	dec b
 	jr z, .finish
+	
+	ld c, 20 ; reset tile counter
 
-	ld a, 20
-	ldh [TilesLeft], a
-	ld c, a
+	jr .loop
 
-	jr .nextline
-
-	; save incremented video and buffer pointers
 .finish
+	; save counters
+	ld a, c
+	ldh [TilesLeft], a
+	ld a, b
+	ldh [LinesLeft], a
+	
+	; save incremented video pointer and buffer pointer 
 	ld a, l
 	ldh [Video], a
 	ld a, h
