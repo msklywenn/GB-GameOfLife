@@ -12,11 +12,7 @@ REPT $150 - $104
 ENDR
 
 SECTION "Main", ROM0[$150]
-Start:
-	; shut sound off
-	xor a
-	ld [rNR52], a
-	
+Start:	
 	; enable v-blank interrupt
 	ld a, IEF_VBLANK
 	ld [rIE], a
