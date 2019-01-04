@@ -1,4 +1,5 @@
 INCLUDE "hardware.inc"
+INCLUDE "utils.inc"
 
 RENDER_IN_HBL EQU 0
 
@@ -126,9 +127,7 @@ ELSE
 	ld a, IEF_VBLANK
 ENDC
 	ld [rIE], a
-	xor a
-	ei
-	ldh [rIF], a
+	ClearAndEnableInterrupts
 	
 	ret
 
@@ -141,6 +140,7 @@ WaitRender:
 	halt
 	jr WaitRender
 
+	di
 IF RENDER_IN_HBL != 0
 	; enable only v-blank interrupt and wait for vbl
 	ld a, IEF_VBLANK
