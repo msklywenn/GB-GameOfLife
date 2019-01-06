@@ -2,10 +2,14 @@ INCLUDE "hardware.inc"
 INCLUDE "utils.inc"
 
 SPRITE_ANIM_DELAY EQU 12
+REPEAT_START_DELAY EQU 24
+REPEAT_DELAY EQU 3
 	
 Section "Edit memory", HRAM
 SelectX: ds 1
 SelectY: ds 1
+Down: ds 1
+RepeatDelay: ds 1
 SpriteAnimation: ds 1
 SpriteDelay: ds 1
 
@@ -16,6 +20,10 @@ InitEdit:
 	ldh [SelectX], a
 	ld a, 18
 	ldh [SelectY], a
+	xor a
+	ldh [Down], a
+	ld a, REPEAT_START_DELAY
+	ldh [RepeatDelay], a
 	ret
 	
 EXPORT EditOldBuffer
@@ -89,8 +97,47 @@ EditOldBuffer:
 	and a, JOYPAD_START
 	jr nz, .exit
 	
-	; check left direction
+	; reset input
+	xor a
+	ldh [Down], a
+
+	; if a direction is pressed, handle repeat
+	ldh a, [JoypadPressed]
+	and JOYPAD_DIRECTIONS
+	ld b, a
+	jr z, .addDown
+
+	; check if time to repeat
+	ldh a, [RepeatDelay]
+	dec a
+	ldh [RepeatDelay], a
+	jr nz, .addDown
+
+	; reset repeat delay and add pressed to inputs
+	ld a, REPEAT_DELAY
+	ldh [RepeatDelay], a
+	ld a, b
+	ldh [Down], a
+
+	; add just down keys
+.addDown
 	ldh a, [JoypadDown]
+	and JOYPAD_DIRECTIONS
+	ld b, a
+	ldh a, [Down]
+	or a, b
+	ldh [Down], a
+	
+	ldh a, [JoypadPressed]
+	or a
+	jr nz, .do
+	
+	ld a, REPEAT_START_DELAY
+	ldh [RepeatDelay], a
+	
+.do
+	; check left direction
+	ldh a, [Down]
 	and a, JOYPAD_LEFT
 	jr z, .endLeft
 	ldh a, [SelectX]
@@ -101,7 +148,7 @@ EditOldBuffer:
 .endLeft
 	
 	; check up direction
-	ldh a, [JoypadDown]
+	ldh a, [Down]
 	and a, JOYPAD_UP
 	jr z, .endUp
 	ldh a, [SelectY]
@@ -112,7 +159,7 @@ EditOldBuffer:
 .endUp
 	
 	; check right direction
-	ldh a, [JoypadDown]
+	ldh a, [Down]
 	and a, JOYPAD_RIGHT
 	jr z, .endRight
 	ldh a, [SelectX]
@@ -123,7 +170,7 @@ EditOldBuffer:
 .endRight
 	
 	; check down direction
-	ldh a, [JoypadDown]
+	ldh a, [Down]
 	and a, JOYPAD_DOWN
 	jr z, .endDown
 	ldh a, [SelectY]
@@ -134,6 +181,7 @@ EditOldBuffer:
 .endDown
 	
 	; wait v-blank
+.skip
 	halt	
 	
 	jp .loop
