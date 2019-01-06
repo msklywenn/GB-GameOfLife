@@ -30,9 +30,10 @@ ENDC
 	xor a
 	ld [rLCDC], a
 
-	; load bg palette [0=black, 1=dark gray, 2=light gray, 3=white]
+	; load bg and obj palette [0=black, 1=dark gray, 2=light gray, 3=white]
 	ld a, %11100100
 	ld [rBGP], a
+	ld [rOBP0], a
 	
 	; load 18 tiles
 	; 0..15: 2x2 cell combinations
