@@ -15,6 +15,7 @@ EXPORT Buffer1
 SECTION "Automata buffer 1", WRAM0, ALIGN[9]
 Buffer1: ds 20 * 18
 
+EXPORT Old
 SECTION "Automata data", HRAM
 New: ds 1 ; high byte of pointer to bufferX
 Old: ds 1 ; high byte of pointer to bufferX
@@ -260,6 +261,12 @@ UpdateAutomata:
 	; handle last element
 .bottomright
 	ConwayGroup -19, -359, -340, -341, -1, -21, -20, -39
+	
+	; move buffer address back to beginning
+	ld hl, Old
+	dec [hl]
+	xor a
+	ldh [Progress], a
 	
 	ret
 

@@ -69,6 +69,7 @@ Start:
 	call MemoryCopy
 	
 	call InitAutomata
+	call InitEdit
 	
 	; enable h-blank interrupt in lcd stat
 	ld a, STATF_MODE00
@@ -82,5 +83,6 @@ Start:
 	call StartRender
 	call UpdateAutomata
 	call WaitRender
+	call EditOldBuffer
 	call SwapBuffers
 	jp .mainloop
