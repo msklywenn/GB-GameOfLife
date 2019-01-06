@@ -1,4 +1,5 @@
 INCLUDE "hardware.inc"
+INCLUDE "utils.inc"
 
 EMPTY_BG_TILE EQU 17
 _VRAM_BG_TILES EQU $9000
@@ -82,11 +83,12 @@ ENDC
 	ld a, LCDCF_ON
 	ld [rLCDC], a
 	
+	ClearAndEnableInterrupts
 .mainloop
 	call StartRender
 	call UpdateAutomata
 	call WaitRender
+	call SwapBuffers
 	call UpdateJoypad
 	call EditOldBuffer
-	call SwapBuffers
 	jp .mainloop

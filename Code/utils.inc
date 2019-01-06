@@ -1,10 +1,19 @@
 INCLUDE "hardware.inc"
 
+JOYPAD_A      EQU $01
+JOYPAD_B      EQU $02
+JOYPAD_SELECT EQU $04
+JOYPAD_START  EQU $08
+JOYPAD_RIGHT  EQU $10
+JOYPAD_LEFT   EQU $20
+JOYPAD_UP     EQU $40
+JOYPAD_DOWN   EQU $80
+
 	; destroys A
 ClearAndEnableInterrupts: MACRO
 	xor a
 	ei ; will take effect AFTER next instruction
-	ldh a, [rIF]
+	ldh [rIF], a
 ENDM
 
 	; \1: sprite ID

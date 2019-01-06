@@ -132,7 +132,6 @@ ELSE
 	ld a, IEF_VBLANK
 ENDC
 	ld [rIE], a
-	ClearAndEnableInterrupts
 	
 	ret
 
@@ -141,11 +140,11 @@ SECTION "WaitRender", ROM0
 WaitRender:
 	ldh a, [LinesLeft]
 	or a
-	ret z
+	jr z, .exit
 	halt
 	jr WaitRender
 
-	di
+.exit
 IF RENDER_IN_HBL != 0
 	; enable only v-blank interrupt and wait for vbl
 	ld a, IEF_VBLANK
@@ -154,5 +153,17 @@ IF RENDER_IN_HBL != 0
 	ldh [rIF], a
 	halt
 ENDC
+
+	; move video pointer back to beginning
+	ld hl, Video
+	ld a, [hl+]
+	ld h, [hl]
+	ld l, a
+	ld de, -(32*18)
+	add hl, de
+	ld a, l
+	ldh [Video], a
+	ld a, h
+	ldh [Video + 1], a
 
 	ret

@@ -15,7 +15,7 @@ EXPORT Buffer1
 SECTION "Automata buffer 1", WRAM0, ALIGN[9]
 Buffer1: ds 20 * 18
 
-EXPORT Old
+EXPORT New, Old, Progress
 SECTION "Automata data", HRAM
 New: ds 1 ; high byte of pointer to bufferX
 Old: ds 1 ; high byte of pointer to bufferX
