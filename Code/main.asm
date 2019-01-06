@@ -20,7 +20,9 @@ Start:
 	xor a
 	ldh [rIF], a
 
+IF !DEF(DIRECT_TO_GAME)
 	call ScrollNintendoOut
+ENDC
 	
 	; disable screen
 	halt
@@ -68,6 +70,7 @@ Start:
 	ld bc, 20 * 18
 	call MemoryCopy
 	
+	call InitJoypad
 	call InitAutomata
 	call InitEdit
 	
