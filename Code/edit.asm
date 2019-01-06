@@ -2,7 +2,7 @@ INCLUDE "hardware.inc"
 INCLUDE "utils.inc"
 
 SPRITE_ANIM_DELAY EQU 12
-REPEAT_START_DELAY EQU 24
+REPEAT_START_DELAY EQU 16
 REPEAT_DELAY EQU 3
 	
 Section "Edit memory", HRAM
@@ -48,6 +48,11 @@ EditOldBuffer:
 	ld a, SPRITE_ANIM_DELAY
 	ldh [SpriteDelay], a
 	
+	; set video address to displayed
+	ldh a, [Video + 1]
+	xor a, %100
+	ldh [Video + 1], a
+	
 .loop
 	; clear interrupts
 	xor a
@@ -91,6 +96,10 @@ EditOldBuffer:
 	ldh a, [JoypadDown]
 	and a, JOYPAD_A
 	call nz, ToggleCell
+	
+	ldh a, [JoypadDown]
+	and a, JOYPAD_SELECT
+	call nz, Clear
 
 	; check start has been pressed
 	ldh a, [JoypadDown]
@@ -192,6 +201,11 @@ EditOldBuffer:
 	ldh a, [rLCDC]
 	and a, ~LCDCF_OBJON
 	ldh [rLCDC], a
+		
+	; set video address to next displayed
+	ldh a, [Video + 1]
+	xor a, %100
+	ldh [Video + 1], a
 	
 	ret
 
@@ -242,7 +256,6 @@ ToggleCell:
 	ldh a, [Video]
 	ld l, a
 	ldh a, [Video + 1]
-	xor a, %100 ; change to displayed video buffer
 	ld h, a
 	ToggleInTargetBuffer 32
 	ldh a, [Progress]
@@ -250,4 +263,44 @@ ToggleCell:
 	ldh a, [Old]
 	ld h, a
 	ToggleInTargetBuffer 20
+	ret
+	
+Clear:
+	; load old buffer address and store into rendered
+	ldh a, [Progress]
+	ld l, a
+	ld [Rendered], a
+	ldh a, [Old]
+	ld h, a
+	ld [Rendered + 1], a
+	
+	; clear old buffer
+	ld bc, 20 * 18
+	ld d, 0
+	call MemorySet
+	
+	; render cleared buffer
+	call StartRender
+	call WaitRender	
+	
+	; reset video pointer
+	ld hl, Video
+	ld a, [hl+]
+	ld h, [hl]
+	ld l, a
+	ld de, -(32 * 18)
+	add hl, de
+	ld a, l
+	ldh [Video], a
+	ld a, h
+	ldh [Video + 1], a
+	
+	; reset rendered pointer
+	ldh a, [Progress]
+	ld l, a
+	ld [Rendered], a
+	ldh a, [Old]
+	ld h, a
+	ld [Rendered + 1], a
+	
 	ret

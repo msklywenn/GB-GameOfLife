@@ -154,16 +154,4 @@ IF RENDER_IN_HBL != 0
 	halt
 ENDC
 
-	; move video pointer back to beginning
-	ld hl, Video
-	ld a, [hl+]
-	ld h, [hl]
-	ld l, a
-	ld de, -(32*18)
-	add hl, de
-	ld a, l
-	ldh [Video], a
-	ld a, h
-	ldh [Video + 1], a
-
 	ret
