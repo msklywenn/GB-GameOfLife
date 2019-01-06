@@ -86,6 +86,7 @@ ENDC
 	call StartRender
 	call UpdateAutomata
 	call WaitRender
+	call UpdateJoypad
 	call EditOldBuffer
 	call SwapBuffers
 	jp .mainloop

@@ -13,12 +13,9 @@ InitEdit:
 	ldh [SelectY], a
 	ret
 	
-
 EXPORT EditOldBuffer
 SECTION "Edit old buffer", ROM0
-EditOldBuffer:
-	call UpdateJoypad
-	
+EditOldBuffer:	
 	ldh a, [JoypadDown]
 	and a, %1000
 	ret z
