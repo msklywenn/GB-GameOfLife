@@ -12,14 +12,19 @@ Rendered: ds 2      ; progressing pointer in old buffer
 
 SECTION "V-Blank Interrupt Handler", ROM0[$40]
 VBlankInterruptHandler:
-	jr LCDStatInterruptHandler
+	; save registers
+	push af
+	push bc
+	call ReadJoypad
+	jr LCDStatInterruptHandler.start
 
 SECTION "LCD Stat Interrupt Handler", ROM0[$48]
 LCDStatInterruptHandler:
 	; save registers
 	push af
 	push bc
-    
+
+.start    
 	; check there are tiles to render
 	ldh a, [LinesLeft]
 	or a
