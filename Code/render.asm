@@ -149,9 +149,7 @@ IF RENDER_IN_HBL != 0
 	; enable only v-blank interrupt and wait for vbl
 	ld a, IEF_VBLANK
 	ld [rIE], a
-	xor a
-	ldh [rIF], a
-	halt
+	HaltAndClearInterrupts
 ENDC
 
 	ret

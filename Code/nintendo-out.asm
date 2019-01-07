@@ -1,15 +1,10 @@
 INCLUDE "hardware.inc"
+INCLUDE "utils.inc"
 
 SECTION "Random", ROM0, ALIGN[4]
 Random:
 	db -1, 1, 2, -1, 4, 3, -2, -1, -4, 3, -1, 5, 2
 RandomEnd:
-
-HaltAndClearIF: MACRO
-	halt
-	xor a
-	ld [rIF], a
-ENDM
 
 EXPORT ScrollNintendoOut
 SECTION "Scroll Nintendo Out", ROM0
@@ -18,7 +13,7 @@ ScrollNintendoOut:
 	; wait a moment
 	ld b, 32
 .wait
-	HaltAndClearIF
+	HaltAndClearInterrupts
 	dec b
 	jr nz, .wait
 	
@@ -45,8 +40,8 @@ ScrollNintendoOut:
 	ld e, 0
 	ld b, 42
 .noise
-	HaltAndClearIF
-	HaltAndClearIF
+	HaltAndClearInterrupts
+	HaltAndClearInterrupts
 	ld a, [de]
 	ldh [rSCY], a
 	
@@ -85,7 +80,7 @@ ScrollNintendoOut:
 
 	; nintendo logo lift-off!
 .scrollup
-	HaltAndClearIF
+	HaltAndClearInterrupts
 
 	; scroll up
 	ldh a, [rSCY]

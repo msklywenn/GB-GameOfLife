@@ -5,7 +5,7 @@ SPRITE_ANIM_DELAY EQU 12
 REPEAT_START_DELAY EQU 16
 REPEAT_DELAY EQU 3
 	
-Section "Edit memory", HRAM
+SECTION "Edit memory", HRAM
 SelectX: ds 1
 SelectY: ds 1
 Down: ds 1
@@ -26,21 +26,63 @@ InitEdit:
 	ldh [RepeatDelay], a
 	ret
 	
+SECTION "Jingle", ROM0
+Jingle:
+
+	; load initial frequency into HL
+FREQUENCY = 330
+	ld hl, PULSE_FREQUENCY
+
+	; load step to be added to frequency in DE
+	; based on if a != 0 or not
+	or a
+	jr z, .up
+.down
+	ld de, 100
+	jr .do
+.up
+	ld de, -100	
+
+.do
+	; load note count
+	ld b, 3
+.loop
+
+	; play pulse channel 1 with frequency set in HL
+	xor a
+	ldh [rNR10], a ; sweep 
+	ld a, (%01 << 6) + 30
+	ldh [rNR11], a ; pattern + sound length
+	ld a, $43
+	ldh [rNR12], a ; init volume + envelope sweep
+	ld a, l
+	ldh [rNR13], a
+	ld a, h
+	or a, SOUND_START
+	ldh [rNR14], a
+	
+	; add DE to HL frequency
+	add hl, de
+	
+	; wait ~166ms
+	ld c, 6
+.delay
+	HaltAndClearInterrupts
+	dec c
+	jr nz, .delay
+	
+	; repeat a few times
+	dec b
+	ret z
+	jr .loop
+	
 EXPORT EditOldBuffer
 SECTION "Edit old buffer", ROM0
 EditOldBuffer:
 	; check start has been pressed
 	ldh a, [JoypadDown]
-	and a, JOYPAD_START
+	and a, PADF_START
 	ret z
-	
-	; wait v-blank
-	halt
-	
-	; show sprites
-	ldh a, [rLCDC]
-	or a, LCDCF_OBJON
-	ldh [rLCDC], a
 	
 	; sound ON
 	ld a, $80
@@ -49,6 +91,18 @@ EditOldBuffer:
 	ldh [rNR50], a ; max volume on both speakers
 	ld a, $99
 	ldh [rNR51], a ; channels 1 (pulse) and 4 (noise) on both speakers
+
+	; play jingle with notes going down
+	xor a
+	call Jingle
+
+	; wait v-blank
+	halt
+	
+	; show sprites
+	ldh a, [rLCDC]
+	or a, LCDCF_OBJON
+	ldh [rLCDC], a
 	
 	; init sprite animation
 	xor a
@@ -60,12 +114,12 @@ EditOldBuffer:
 	ldh a, [Video + 1]
 	xor a, %100
 	ldh [Video + 1], a
-	
-.loop
+
 	; clear interrupts
 	xor a
 	ldh [rIF], a
 
+.loop
 	; compute cursor X position
 	ldh a, [SelectX]
 	sla a
@@ -102,16 +156,16 @@ EditOldBuffer:
 	
 	; check A button has been pressed
 	ldh a, [JoypadDown]
-	and a, JOYPAD_A
+	and a, PADF_A
 	call nz, ToggleCell
 	
 	ldh a, [JoypadDown]
-	and a, JOYPAD_SELECT
+	and a, PADF_SELECT
 	call nz, Clear
 
 	; check start has been pressed
 	ldh a, [JoypadDown]
-	and a, JOYPAD_START
+	and a, PADF_START
 	jr nz, .exit
 	
 	; reset input
@@ -155,7 +209,7 @@ EditOldBuffer:
 .do
 	; check left direction
 	ldh a, [Down]
-	and a, JOYPAD_LEFT
+	and a, PADF_LEFT
 	jr z, .endLeft
 	ldh a, [SelectX]
 	and a
@@ -166,7 +220,7 @@ EditOldBuffer:
 	
 	; check up direction
 	ldh a, [Down]
-	and a, JOYPAD_UP
+	and a, PADF_UP
 	jr z, .endUp
 	ldh a, [SelectY]
 	and a
@@ -177,7 +231,7 @@ EditOldBuffer:
 	
 	; check right direction
 	ldh a, [Down]
-	and a, JOYPAD_RIGHT
+	and a, PADF_RIGHT
 	jr z, .endRight
 	ldh a, [SelectX]
 	cp a, 39
@@ -188,7 +242,7 @@ EditOldBuffer:
 	
 	; check down direction
 	ldh a, [Down]
-	and a, JOYPAD_DOWN
+	and a, PADF_DOWN
 	jr z, .endDown
 	ldh a, [SelectY]
 	cp a, 35
@@ -199,12 +253,15 @@ EditOldBuffer:
 	
 	; wait v-blank
 .skip
-	halt	
+	HaltAndClearInterrupts
 	
 	jp .loop
 	
 .exit
 	
+	ld a, 1
+	call Jingle
+
 	; hide sprites
 	ldh a, [rLCDC]
 	and a, ~LCDCF_OBJON
@@ -215,13 +272,20 @@ EditOldBuffer:
 	xor a, %100
 	ldh [Video + 1], a
 	
+	; wait for sound to finish
+	ld b, 10
+.waitSound
+	HaltAndClearInterrupts
+	dec b
+	jr nz, .waitSound
+	
 	; sound OFF
 	xor a
 	ldh [rNR52], a
 	
 	ret
 
-Section "Value to flag", ROM0, ALIGN[8]
+SECTION "Value to flag", ROM0, ALIGN[8]
 Flag: db 1, 2, 4, 8
 	
 	; \1: horizontal stride
@@ -245,6 +309,7 @@ MoveToCell: MACRO
 	add hl, de	
 ENDM
 
+SECTION "Toggle cell", ROM0
 ToggleCell:	
 	; compute cell number in 2x2 cell group
 	ldh a, [SelectX]
@@ -309,14 +374,16 @@ ToggleCell:
 	ldh [rNR11], a ; pattern + sound length
 	ld a, $43
 	ldh [rNR12], a ; init volume + envelope sweep
-	ld a, $D7
-	ldh [rNR13], a ; frequency low ($6D7 = 1751 => 440Hz)
-	ld a, $83
-	ldh [rNR14], a ; start + frequency high
+FREQUENCY = 100
+	ld a, LOW(PULSE_FREQUENCY)
+	ldh [rNR13], a
+	ld a, SOUND_START | HIGH(PULSE_FREQUENCY)
+	ldh [rNR14], a
 
 .exit
 	ret
 	
+SECTION "Clear buffers", ROM0
 Clear:
 	; load old buffer address and store into rendered
 	ldh a, [Progress]
@@ -330,6 +397,16 @@ Clear:
 	ld bc, 20 * 18
 	ld d, 0
 	call MemorySet
+	
+	; play long noise
+	xor a
+	ldh [rNR41], a ; set sound duration
+	ld a, $F4
+	ldh [rNR42], a ; set volume with long sweep
+	ld a, $72
+	ldh [rNR43], a ; set frequency
+	ld a, $80
+	ldh [rNR44], a ; start
 	
 	; render cleared buffer
 	call StartRender

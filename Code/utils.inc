@@ -1,20 +1,22 @@
 INCLUDE "hardware.inc"
 
-JOYPAD_A          EQU $01
-JOYPAD_B          EQU $02
-JOYPAD_SELECT     EQU $04
-JOYPAD_START      EQU $08
-JOYPAD_RIGHT      EQU $10
-JOYPAD_LEFT       EQU $20
-JOYPAD_UP         EQU $40
-JOYPAD_DOWN       EQU $80
-JOYPAD_DIRECTIONS EQU $F0
+JOYPAD_DIRECTIONS EQU (PADF_UP | PADF_DOWN | PADF_LEFT | PADF_RIGHT)
+
+SOUND_START EQU $80
+PULSE_FREQUENCY EQUS "(-131072 / (FREQUENCY) + 2048)"
 
 	; destroys A
 ClearAndEnableInterrupts: MACRO
 	xor a
 	ei ; will take effect AFTER next instruction
 	ldh [rIF], a
+ENDM
+
+	; destroys A
+HaltAndClearInterrupts: MACRO
+	xor a
+	ldh [rIF], a
+	halt
 ENDM
 
 	; \1: sprite ID
