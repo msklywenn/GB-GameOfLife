@@ -24,14 +24,14 @@ ScrollNintendoOut:
 	
 	; sound ON
 	ld a, $80
-	ldh [rNR52], a ; sound ON with noise channel
+	ldh [rNR52], a
 	ld a, $77
 	ldh [rNR50], a ; max volume on both speakers
 	ld a, $88
 	ldh [rNR51], a ; noise channel on both speakers
 
 	; make noise
-	ld a, 0
+	xor a
 	ldh [rNR41], a ; set sound duration
 	ld a, $F0
 	ldh [rNR42], a ; set volume
@@ -74,36 +74,24 @@ ScrollNintendoOut:
 	ldh [rSCY], a
 	
 	; change noise
+	xor a
+	ldh [rNR41], a ; set sound duration
+	ld a, $F4
+	ldh [rNR42], a ; set volume with long sweep
 	ld a, $62
 	ldh [rNR43], a ; set frequency
-	
-	ld b, 4 ; number of frames before reducing volume
-	ld c, 16 ; number of steps before volume is 0
+	ld a, $80
+	ldh [rNR44], a ; start
 
 	; nintendo logo lift-off!
 .scrollup
 	HaltAndClearIF
+
 	; scroll up
 	ldh a, [rSCY]
 	inc a
 	ldh [rSCY], a
 	
-	; fade out
-	ld a, c
-	or a
-	jr z, .novolumechange
-	dec b
-	jr nz, .novolumechange
-	; decrement volume by 1
-	; see http://gbdev.gg8.se/wiki/articles/Gameboy_sound_hardware obscure behavior...
-	ld a, $08
-REPT 15 
-	ldh [rNR42], a
-ENDR
-	ld b, 4
-	dec c
-	
-.novolumechange
 	; loop until nintendo logo is out of screen
 	ldh a, [rSCY]
 	cp a, 88

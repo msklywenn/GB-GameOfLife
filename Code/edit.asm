@@ -42,6 +42,14 @@ EditOldBuffer:
 	or a, LCDCF_OBJON
 	ldh [rLCDC], a
 	
+	; sound ON
+	ld a, $80
+	ldh [rNR52], a
+	ld a, $77
+	ldh [rNR50], a ; max volume on both speakers
+	ld a, $99
+	ldh [rNR51], a ; channels 1 (pulse) and 4 (noise) on both speakers
+	
 	; init sprite animation
 	xor a
 	ldh [SpriteAnimation], a
@@ -207,13 +215,17 @@ EditOldBuffer:
 	xor a, %100
 	ldh [Video + 1], a
 	
+	; sound OFF
+	xor a
+	ldh [rNR52], a
+	
 	ret
 
 Section "Value to flag", ROM0, ALIGN[8]
 Flag: db 1, 2, 4, 8
 	
 	; \1: horizontal stride
-ToggleInTargetBuffer: MACRO
+MoveToCell: MACRO
 	; move pointer to 2x2 cell group
 	ldh a, [SelectY]
 	sra a
@@ -231,7 +243,9 @@ ToggleInTargetBuffer: MACRO
 	sra a
 	ld e, a
 	add hl, de	
-	
+ENDM
+
+ToggleCell:	
 	; compute cell number in 2x2 cell group
 	ldh a, [SelectX]
 	and a, 1
@@ -241,28 +255,66 @@ ToggleInTargetBuffer: MACRO
 	sla a
 	or a, b
 	
-	; transform cell number to bit offset in 2x2 cell
+	; transform cell number to bit mask in 2x2 cell
 	ld d, HIGH(Flag)
 	ld e, a
 	ld a, [de]
 	ld b, a
 
-	ld a, [hl]
-	xor a, b
-	ld [hl], a
-ENDM
-
-ToggleCell:
+	; go to 2x2 cell in video buffer
 	ldh a, [Video]
 	ld l, a
 	ldh a, [Video + 1]
 	ld h, a
-	ToggleInTargetBuffer 32
+	MoveToCell 32
+	
+	; toggle bit 
+	ld a, [hl]
+	xor a, b
+	ld [hl], a
+
+	; go to 2x2 cell in automata buffer
 	ldh a, [Progress]
 	ld l, a
 	ldh a, [Old]
 	ld h, a
-	ToggleInTargetBuffer 20
+	MoveToCell 20
+	
+	; toggle bit 
+	ld a, [hl]
+	xor a, b
+	ld [hl], a
+	
+	; do sound based on new value
+	and a, b
+	jr z, .blurp1
+
+	; do noisy sound
+.blurp0
+	xor a
+	ldh [rNR41], a ; sound length
+	ld a, $F1
+	ldh [rNR42], a ; init volume + envelope sweep
+	ld a, $82
+	ldh [rNR43], a ; frequency
+	ld a, $80
+	ldh [rNR44], a ; start
+	jr .exit
+
+	; do pulsy sound
+.blurp1
+	xor a
+	ldh [rNR10], a ; sweep 
+	ld a, (%01 << 6) + 30
+	ldh [rNR11], a ; pattern + sound length
+	ld a, $43
+	ldh [rNR12], a ; init volume + envelope sweep
+	ld a, $D7
+	ldh [rNR13], a ; frequency low ($6D7 = 1751 => 440Hz)
+	ld a, $83
+	ldh [rNR14], a ; start + frequency high
+
+.exit
 	ret
 	
 Clear:
