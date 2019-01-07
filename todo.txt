@@ -1,0 +1,7 @@
+- skip nintendo intro on gbc/gba
+- step by step on B button (rewrite main loop to remove second main loop in edit)
+- shake screen on clear
+- music
+- intro screen
+- better selection sprite
+- cartridge!
