@@ -1,7 +1,7 @@
 INCLUDE "hardware.inc"
 INCLUDE "utils.inc"
 
-SPRITE_ANIM_DELAY EQU 12
+SPRITE_ANIM_DELAY EQU 6
 REPEAT_START_DELAY EQU 16
 REPEAT_DELAY EQU 3
 	
@@ -37,14 +37,14 @@ EditOldBuffer:
 	ldh a, [SelectX]
 	sla a
 	sla a
-	add a, 8
+	add a, 7
 	ld b, a
 	
 	; compute cursor Y position
 	ldh a, [SelectY]
 	sla a
 	sla a
-	add a, 16
+	add a, 15
 	ld c, a
 	
 	; update and load sprite animation
@@ -54,7 +54,10 @@ EditOldBuffer:
 	jr nz, .same
 	ldh a, [SpriteAnimation]
 	inc a
-	and a, 3
+	cp a, (SpriteTilesEnd - SpriteTiles) / 16
+	jr nz, .writeAnim
+	ld a, 0
+.writeAnim
 	ldh [SpriteAnimation], a
 	ld a, SPRITE_ANIM_DELAY
 	ldh [SpriteDelay], a
