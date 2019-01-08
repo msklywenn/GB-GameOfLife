@@ -1,7 +1,7 @@
 # GB-GameOfLife
 An implementation of Conway's Game of Life for the GameBoy.
 
-![Demo in BGB emulator](https://media.giphy.com/media/521QEkVXIIaGyEtWmu/giphy.gif)
+![Demo in BGB emulator](https://media.giphy.com/media/eBfnDCcS8WgimCU7X9/giphy.gif)
 
 Press START to pause and enter edit mode.
 
