@@ -1,12 +1,16 @@
 # GB-GameOfLife
 An implementation of Conway's Game of Life for the GameBoy.
+
 ![Demo in BGB emulator](https://media.giphy.com/media/521QEkVXIIaGyEtWmu/giphy.gif)
+
 Press START to pause and enter edit mode.
+
 In edit mode:
 - use the d-pad to move the cursor
 - press A to toggle a cell's state
 - press B to trigger one step of the automata
 - press SELECT to clear all the cells
+
 Press START again to resume animation of the automata.
 
 # Project's Backstory
