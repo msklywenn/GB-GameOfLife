@@ -1,9 +1,10 @@
 INCLUDE "hardware.inc"
 INCLUDE "utils.inc"
 
+EXPORT Random, RandomEnd
 SECTION "Random", ROM0, ALIGN[4]
 Random:
-	db -1, 1, 2, -1, 4, 3, -2, -1, -4, 3, -1, 5, 2
+	db -1, 1, 2, -1, 2, 0, -2, -1, -2, 3, -1, -2, 2
 RandomEnd:
 
 EXPORT ScrollNintendoOut

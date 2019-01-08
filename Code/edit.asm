@@ -410,7 +410,47 @@ Clear:
 	
 	; render cleared buffer
 	call StartRender
+
+	; disable sprites
+	HaltAndClearInterrupts
+	ldh a, [rLCDC]
+	and a, ~LCDCF_OBJON
+	ldh [rLCDC], a
+
+	; shake background
+	ld d, HIGH(Random)
+	ld e, LOW(Random)
+	ld b, 16
+.shake
+	HaltAndClearInterrupts
+	ld a, [de]
+	ldh [rSCX], a
+
+	inc e
+	ld a, e
+	and a, $7
+	ld e, a
+	
+	ld a, [de]
+	ldh [rSCY], a
+
+	inc e
+	ld a, e
+	and a, $7
+	ld e, a	
+	
+	dec b
+	jr nz, .shake
+	
 	call WaitRender	
+	
+	; reset scrolling and enable sprites again
+	xor a
+	ldh [rSCX], a
+	ldh [rSCY], a
+	ldh a, [rLCDC]
+	or a, LCDCF_OBJON
+	ldh [rLCDC], a
 	
 	; reset video pointer
 	ld hl, Video
