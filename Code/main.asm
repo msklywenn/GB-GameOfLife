@@ -202,7 +202,7 @@ ENDC
 	ldh [rNR10], a ; sweep 
 	ld a, (%01 << 6) + 30
 	ldh [rNR11], a ; pattern + sound length
-	ld a, $62
+	ld a, $33
 	ldh [rNR12], a ; init volume + envelope sweep
 FREQUENCY = 220
 	ld a, LOW(PULSE_FREQUENCY)
