@@ -36,4 +36,5 @@ in between the PPU rendering lines! That requires synchronising code
 with rendering but it should be doable.
 
 The first working version I got looked like this:
+
 ![Animated GIF recorded with BGB](https://media.giphy.com/media/4Zf4UukPqZzAYWIqye/giphy.gif)
