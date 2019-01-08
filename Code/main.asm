@@ -14,6 +14,9 @@ ENDR
 
 SECTION "Main", ROM0[$150]
 Start:	
+	; save gameboy type in B
+	ld b, a
+
 	; enable v-blank interrupt
 	ld a, IEF_VBLANK
 	ld [rIE], a
@@ -22,18 +25,25 @@ Start:
 	ldh [rIF], a
 
 IF !DEF(DIRECT_TO_GAME)
+	; skip if running on GBC or GBA
+	ld a, b
+	cp a, $11
+	jr z, .skip
+
 	call ScrollNintendoOut
+
+.skip
 ENDC
 	
 	; disable screen
 	halt
 	xor a
-	ld [rLCDC], a
+	ldh [rLCDC], a
 
 	; load bg and obj palette [0=black, 1=dark gray, 2=light gray, 3=white]
 	ld a, %11100100
-	ld [rBGP], a
-	ld [rOBP0], a
+	ldh [rBGP], a
+	ldh [rOBP0], a
 	
 	; load 18 tiles
 	; 0..15: 2x2 cell combinations
@@ -57,8 +67,8 @@ ENDC
 	
 	; set scrolling to (0, 0)
 	xor a
-	ld [rSCX], a
-	ld [rSCY], a
+	ldh [rSCX], a
+	ldh [rSCY], a
 	
 	; clear screen (both buffers)
 	ld hl, _SCRN0
@@ -82,7 +92,7 @@ ENDC
 
 	; enable screen but don't display anything yet
 	ld a, LCDCF_ON
-	ld [rLCDC], a
+	ldh [rLCDC], a
 	
 	ClearAndEnableInterrupts
 .mainloop
