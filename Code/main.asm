@@ -1,8 +1,14 @@
 INCLUDE "hardware.inc"
 INCLUDE "utils.inc"
 
-EMPTY_BG_TILE EQU 17
 _VRAM_BG_TILES EQU $9000
+EMPTY_BG_TILE EQU 17
+
+ANIMATE EQU %01
+STEP    EQU %10
+
+SECTION "Main Memory", HRAM
+Control: ds 1
 
 SECTION "Header", ROM0[$100]
 EntryPoint:
@@ -12,11 +18,69 @@ REPT $150 - $104
     db 0
 ENDR
 
+SECTION "Jingle", ROM0
+Jingle:
+
+	; load initial frequency into HL
+FREQUENCY = 330
+	ld hl, PULSE_FREQUENCY
+
+	; load step to be added to frequency in DE
+	; based on if a != 0 or not
+	or a
+	jr z, .up
+.down
+	ld de, 100
+	jr .do
+.up
+	ld de, -100	
+
+.do
+	; load note count
+	ld b, 3
+.loop
+
+	; play pulse channel 1 with frequency set in HL
+	xor a
+	ldh [rNR10], a ; sweep 
+	ld a, (%01 << 6) + 30
+	ldh [rNR11], a ; pattern + sound length
+	ld a, $43
+	ldh [rNR12], a ; init volume + envelope sweep
+	ld a, l
+	ldh [rNR13], a
+	ld a, h
+	or a, SOUND_START
+	ldh [rNR14], a
+	
+	; add DE to HL frequency
+	add hl, de
+	
+	; wait ~166ms
+	ld c, 6
+.delay
+	HaltAndClearInterrupts
+	dec c
+	jr nz, .delay
+	
+	; repeat a few times
+	dec b
+	ret z
+	jr .loop
+
 SECTION "Main", ROM0[$150]
 Start:	
 	; save gameboy type in B
 	ld b, a
 
+	; enable sound
+	ld a, $80
+	ld [rNR52], a ; sound ON
+	ld a, $77
+	ldh [rNR50], a ; max volume on both speakers
+	ld a, $99
+	ldh [rNR51], a ; channels 1 (pulse) and 4 (noise) on both speakers
+	
 	; enable v-blank interrupt
 	ld a, IEF_VBLANK
 	ld [rIE], a
@@ -70,6 +134,10 @@ ENDC
 	ldh [rSCX], a
 	ldh [rSCY], a
 	
+	; animate by default
+	ld a, ANIMATE
+	ldh [Control], a
+	
 	; clear screen (both buffers)
 	ld hl, _SCRN0
 	ld d, EMPTY_BG_TILE
@@ -84,6 +152,7 @@ ENDC
 	
 	call InitJoypad
 	call InitAutomata
+	call InitRender
 	call InitEdit
 	
 	; enable h-blank interrupt in lcd stat
@@ -95,11 +164,68 @@ ENDC
 	ldh [rLCDC], a
 	
 	ClearAndEnableInterrupts
+
 .mainloop
+	; animate if a control bit is set
+	ldh a, [Control]
+	or a
+	jr z, .interact
+
 	call StartRender
 	call UpdateAutomata
 	call WaitRender
 	call SwapBuffers
-	call UpdateJoypad
+
+	; clear step bit
+	ldh a, [Control]
+	and a, ~STEP
+	ldh [Control], a
+
+	jr .checkpause
+
+.interact
+	HaltAndClearInterrupts
+
 	call EditOldBuffer
-	jp .mainloop
+
+	; step if B is pressed
+	ldh a, [JoypadDown]
+	and a, PADF_B
+	jr z, .checkpause
+
+	; enable step bit in control
+	ld a, STEP
+	ldh [Control], a
+	
+	; do sound
+	ld a, $6E
+	ldh [rNR10], a ; sweep 
+	ld a, (%01 << 6) + 30
+	ldh [rNR11], a ; pattern + sound length
+	ld a, $62
+	ldh [rNR12], a ; init volume + envelope sweep
+FREQUENCY = 220
+	ld a, LOW(PULSE_FREQUENCY)
+	ldh [rNR13], a
+	ld a, SOUND_START | HIGH(PULSE_FREQUENCY)
+	ldh [rNR14], a
+	
+.checkpause
+	call UpdateJoypad
+
+	ldh a, [JoypadDown]
+	and a, PADF_START
+	jr z, .mainloop
+	
+	ldh a, [Control]
+	xor a, ANIMATE
+	ldh [Control], a
+	and a, ANIMATE
+	call Jingle
+	
+	; toggle sprites
+	ldh a, [rLCDC]
+	xor a, LCDCF_OBJON
+	ldh [rLCDC], a
+
+	jr .mainloop

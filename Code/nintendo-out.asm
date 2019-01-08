@@ -18,14 +18,6 @@ ScrollNintendoOut:
 	dec b
 	jr nz, .wait
 	
-	; sound ON
-	ld a, $80
-	ldh [rNR52], a
-	ld a, $77
-	ldh [rNR50], a ; max volume on both speakers
-	ld a, $88
-	ldh [rNR51], a ; noise channel on both speakers
-
 	; make noise
 	xor a
 	ldh [rNR41], a ; set sound duration
@@ -92,9 +84,5 @@ ScrollNintendoOut:
 	ldh a, [rSCY]
 	cp a, 88
 	jp nz, .scrollup
-	
-	; sound off
-	xor a
-	ldh [rNR52], a
 	
 	ret

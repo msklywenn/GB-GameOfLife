@@ -115,9 +115,26 @@ LCDStatInterruptHandler:
 	; return from v-blank or lcd interrupt
 	reti
 
+EXPORT InitRender
+SECTION "Init render", ROM0
+InitRender:
+	ld a, $9C
+	ldh [Video + 1], a
+	xor a
+	ldh [Video], a
+	ret
+
 EXPORT StartRender	
 SECTION "StartRender", ROM0
-StartRender:
+StartRender:	
+	; set rendered pointer to old buffer
+	ldh a, [Progress]
+	ld l, a
+	ld [Rendered], a
+	ldh a, [Old]
+	ld h, a
+	ld [Rendered + 1], a
+
 	; start rendering
 	ld a, 20
 	ldh [TilesLeft], a
@@ -151,5 +168,20 @@ IF RENDER_IN_HBL != 0
 	ld [rIE], a
 	HaltAndClearInterrupts
 ENDC
+
+	; swap video pointer
+	ldh a, [Video + 1]
+	dec a
+	dec a
+	xor a, %100
+	ldh [Video + 1], a
+	xor a
+	ldh [Video], a
+
+	; swap displayed BG
+	ldh a, [rLCDC]
+	xor a, LCDCF_BG9C00
+	or a, LCDCF_ON | LCDCF_BGON
+	ldh [rLCDC], a
 
 	ret

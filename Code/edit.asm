@@ -24,102 +24,15 @@ InitEdit:
 	ldh [Down], a
 	ld a, REPEAT_START_DELAY
 	ldh [RepeatDelay], a
-	ret
-	
-SECTION "Jingle", ROM0
-Jingle:
-
-	; load initial frequency into HL
-FREQUENCY = 330
-	ld hl, PULSE_FREQUENCY
-
-	; load step to be added to frequency in DE
-	; based on if a != 0 or not
-	or a
-	jr z, .up
-.down
-	ld de, 100
-	jr .do
-.up
-	ld de, -100	
-
-.do
-	; load note count
-	ld b, 3
-.loop
-
-	; play pulse channel 1 with frequency set in HL
-	xor a
-	ldh [rNR10], a ; sweep 
-	ld a, (%01 << 6) + 30
-	ldh [rNR11], a ; pattern + sound length
-	ld a, $43
-	ldh [rNR12], a ; init volume + envelope sweep
-	ld a, l
-	ldh [rNR13], a
-	ld a, h
-	or a, SOUND_START
-	ldh [rNR14], a
-	
-	; add DE to HL frequency
-	add hl, de
-	
-	; wait ~166ms
-	ld c, 6
-.delay
-	HaltAndClearInterrupts
-	dec c
-	jr nz, .delay
-	
-	; repeat a few times
-	dec b
-	ret z
-	jr .loop
-	
-EXPORT EditOldBuffer
-SECTION "Edit old buffer", ROM0
-EditOldBuffer:
-	; check start has been pressed
-	ldh a, [JoypadDown]
-	and a, PADF_START
-	ret z
-	
-	; sound ON
-	ld a, $80
-	ldh [rNR52], a
-	ld a, $77
-	ldh [rNR50], a ; max volume on both speakers
-	ld a, $99
-	ldh [rNR51], a ; channels 1 (pulse) and 4 (noise) on both speakers
-
-	; play jingle with notes going down
-	xor a
-	call Jingle
-
-	; wait v-blank
-	halt
-	
-	; show sprites
-	ldh a, [rLCDC]
-	or a, LCDCF_OBJON
-	ldh [rLCDC], a
-	
-	; init sprite animation
 	xor a
 	ldh [SpriteAnimation], a
 	ld a, SPRITE_ANIM_DELAY
 	ldh [SpriteDelay], a
+	ret	
 	
-	; set video address to displayed
-	ldh a, [Video + 1]
-	xor a, %100
-	ldh [Video + 1], a
-
-	; clear interrupts
-	xor a
-	ldh [rIF], a
-
-.loop
+EXPORT EditOldBuffer
+SECTION "Edit old buffer", ROM0
+EditOldBuffer:
 	; compute cursor X position
 	ldh a, [SelectX]
 	sla a
@@ -152,22 +65,16 @@ EditOldBuffer:
 	; update sprite in OAM
 	SetSprite 0, b, c, d, 0
 
-	call UpdateJoypad
-	
-	; check A button has been pressed
+	; toggle targeted cell if A pressed
 	ldh a, [JoypadDown]
 	and a, PADF_A
 	call nz, ToggleCell
 	
+	; clear if SELECT pressed
 	ldh a, [JoypadDown]
 	and a, PADF_SELECT
 	call nz, Clear
 
-	; check start has been pressed
-	ldh a, [JoypadDown]
-	and a, PADF_START
-	jr nz, .exit
-	
 	; reset input
 	xor a
 	ldh [Down], a
@@ -251,38 +158,6 @@ EditOldBuffer:
 	ldh [SelectY], a
 .endDown
 	
-	; wait v-blank
-.skip
-	HaltAndClearInterrupts
-	
-	jp .loop
-	
-.exit
-	
-	ld a, 1
-	call Jingle
-
-	; hide sprites
-	ldh a, [rLCDC]
-	and a, ~LCDCF_OBJON
-	ldh [rLCDC], a
-		
-	; set video address to next displayed
-	ldh a, [Video + 1]
-	xor a, %100
-	ldh [Video + 1], a
-	
-	; wait for sound to finish
-	ld b, 10
-.waitSound
-	HaltAndClearInterrupts
-	dec b
-	jr nz, .waitSound
-	
-	; sound OFF
-	xor a
-	ldh [rNR52], a
-	
 	ret
 
 SECTION "Value to flag", ROM0, ALIGN[8]
@@ -330,6 +205,7 @@ ToggleCell:
 	ldh a, [Video]
 	ld l, a
 	ldh a, [Video + 1]
+	xor a, %100
 	ld h, a
 	MoveToCell 32
 	
@@ -352,10 +228,10 @@ ToggleCell:
 	
 	; do sound based on new value
 	and a, b
-	jr z, .blurp1
+	jr nz, .pulse
 
 	; do noisy sound
-.blurp0
+.noise
 	xor a
 	ldh [rNR41], a ; sound length
 	ld a, $F1
@@ -364,10 +240,10 @@ ToggleCell:
 	ldh [rNR43], a ; frequency
 	ld a, $80
 	ldh [rNR44], a ; start
-	jr .exit
+	ret
 
 	; do pulsy sound
-.blurp1
+.pulse
 	xor a
 	ldh [rNR10], a ; sweep 
 	ld a, (%01 << 6) + 30
@@ -379,10 +255,8 @@ FREQUENCY = 100
 	ldh [rNR13], a
 	ld a, SOUND_START | HIGH(PULSE_FREQUENCY)
 	ldh [rNR14], a
-
-.exit
 	ret
-	
+
 SECTION "Clear buffers", ROM0
 Clear:
 	; load old buffer address and store into rendered
@@ -392,7 +266,7 @@ Clear:
 	ldh a, [Old]
 	ld h, a
 	ld [Rendered + 1], a
-	
+		
 	; clear old buffer
 	ld bc, 20 * 18
 	ld d, 0
@@ -451,25 +325,5 @@ Clear:
 	ldh a, [rLCDC]
 	or a, LCDCF_OBJON
 	ldh [rLCDC], a
-	
-	; reset video pointer
-	ld hl, Video
-	ld a, [hl+]
-	ld h, [hl]
-	ld l, a
-	ld de, -(32 * 18)
-	add hl, de
-	ld a, l
-	ldh [Video], a
-	ld a, h
-	ldh [Video + 1], a
-	
-	; reset rendered pointer
-	ldh a, [Progress]
-	ld l, a
-	ld [Rendered], a
-	ldh a, [Old]
-	ld h, a
-	ld [Rendered + 1], a
 	
 	ret

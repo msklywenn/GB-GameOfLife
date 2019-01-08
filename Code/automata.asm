@@ -282,19 +282,10 @@ SwapBuffers:
 	; set old and rendered pointers to buffer1
 	ld a, HIGH(Buffer1)
 	ldh [Old], a
-	ldh [Rendered + 1], a
 
 	; set new pointer to buffer0
 	ld a, HIGH(Buffer0)
 	ldh [New], a
-
-	; set video pointer to first tilemap
-	ld a, HIGH(_SCRN1)
-	ldh [Video + 1], a
-
-	; display bg 9800 that has just been filled
-	ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9800
-	ld [rLCDC], a
 
 	jr InitAutomata.resetLow
 
@@ -303,19 +294,10 @@ InitAutomata:
 	; set old and rendered pointers to buffer0
 	ld a, HIGH(Buffer0)
 	ldh [Old], a
-	ldh [Rendered + 1], a
 
 	; set new pointer to buffer1
 	ld a, HIGH(Buffer1)
 	ldh [New], a
-
-	; set video pointer to second tilemap
-	ld a, HIGH(_SCRN0)
-	ldh [Video + 1], a
-
-	; display bg 9C00 that has just been filled
-	ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9C00
-	ld [rLCDC], a
 
 .resetLow
 	; reset low bytes of pointers
