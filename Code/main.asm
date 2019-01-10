@@ -93,8 +93,13 @@ Start:
 	ld bc, BackgroundTilesEnd - BackgroundTiles
 	call VideoMemoryCopy
 
+IF !DEF(SKIP_INTRO)
 	HaltAndClearInterrupts
 	call Intro
+ELSE
+	ld a, LCDCF_ON
+	ldh [rLCDC], a
+ENDC
 	
 	; copy sprite tiles
 	HaltAndClearInterrupts
