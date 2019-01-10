@@ -1,4 +1,4 @@
 - music
-- intro screen
-- better selection sprite
+- title screen
+- fade nintendo's boot logo into cells and start automata (http://tinyurl.com/y732fk7b)
 - cartridge!
