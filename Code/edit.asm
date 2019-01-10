@@ -237,7 +237,7 @@ ToggleCell:
 .noise
 	xor a
 	ldh [rNR41], a ; sound length
-	ld a, $F1
+	ld a, $F2
 	ldh [rNR42], a ; init volume + envelope sweep
 	ld a, $82
 	ldh [rNR43], a ; frequency
@@ -251,7 +251,7 @@ ToggleCell:
 	ldh [rNR10], a ; sweep 
 	ld a, (%01 << 6) + 30
 	ldh [rNR11], a ; pattern + sound length
-	ld a, $43
+	ld a, $F1
 	ldh [rNR12], a ; init volume + envelope sweep
 FREQUENCY = 100
 	ld a, LOW(PULSE_FREQUENCY)

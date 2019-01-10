@@ -45,7 +45,7 @@ FREQUENCY = 330
 	ldh [rNR10], a ; sweep 
 	ld a, (%01 << 6) + 30
 	ldh [rNR11], a ; pattern + sound length
-	ld a, $43
+	ld a, $F1
 	ldh [rNR12], a ; init volume + envelope sweep
 	ld a, l
 	ldh [rNR13], a
@@ -70,9 +70,6 @@ FREQUENCY = 330
 
 SECTION "Main", ROM0[$150]
 Start:	
-	; save gameboy type in B
-	ld b, a
-
 	; enable sound
 	ld a, $80
 	ld [rNR52], a ; sound ON
@@ -85,50 +82,63 @@ Start:
 	ld a, IEF_VBLANK
 	ld [rIE], a
 
-	xor a
-	ldh [rIF], a
-
-;IF !DEF(DIRECT_TO_GAME)
-;	; skip if running on GBC or GBA
-;	ld a, b
-;	cp a, $11
-;	jr z, .skip
-;
-;	call ScrollNintendoOut
-;
-;.skip
-;ENDC
-	
-	; disable screen
-	halt
-	xor a
-	ldh [rLCDC], a
-
-	; load bg and obj palette [0=black, 1=dark gray, 2=light gray, 3=white]
-	ld a, %11100100
-	ldh [rBGP], a
-	ldh [rOBP0], a
+	HaltAndClearInterrupts
 	
 	; load 18 tiles
 	; 0..15: 2x2 cell combinations
 	; 16: sprite selection tile
 	; 17: empty tile
-	ld hl, _VRAM_BG_TILES
-	ld de, BackgroundTiles
+	ld de, _VRAM_BG_TILES
+	ld hl, BackgroundTiles
 	ld bc, BackgroundTilesEnd - BackgroundTiles
-	call MemoryCopy
+	call VideoMemoryCopy
+
+	HaltAndClearInterrupts
+	call Intro
 	
-	ld hl, _VRAM
-	ld de, SpriteTiles
+	; copy sprite tiles
+	HaltAndClearInterrupts
+	ld de, _VRAM
+	ld hl, SpriteTiles
 	ld bc, SpriteTilesEnd - SpriteTiles
-	call MemoryCopy
+	call VideoMemoryCopy
 	
-	; clear OAM
+	; clear OAM over 4 frames
+	HaltAndClearInterrupts
 	ld hl, _OAMRAM
 	ld d, 0
-	ld bc, 40 * 4
+REPT 2
+	ld bc, 40 * 2
 	call MemorySet
-	
+	HaltAndClearInterrupts
+ENDR
+
+	; copy default map into 20x18 automata buffer
+	ld hl, DefaultMap
+	ld de, Buffer0
+	ld c, 18
+.loopY
+	ld b, 20
+
+.loopX
+	ld a, [hl+]
+	ld [de], a
+	inc de
+	dec b
+	jr nz, .loopX
+
+	dec c
+	jr z, .next
+
+	ld a, l
+	add a, 32 - 20
+	ld l, a
+	jr nc, .loopY
+
+	inc h
+	jr .loopY
+.next
+
 	; set scrolling to (0, 0)
 	xor a
 	ldh [rSCX], a
@@ -137,31 +147,20 @@ Start:
 	; animate by default
 	ld a, ANIMATE
 	ldh [Control], a
-	
-	; clear screen (both buffers)
-	ld hl, _SCRN0
-	ld d, EMPTY_BG_TILE
-	ld bc, 32 * 32 * 2
-	call MemorySet
-	
-	; init buffer 0
-	ld hl, Buffer0
-	ld de, DefaultMap
-	ld bc, 20 * 18
-	call MemoryCopy
-	
+
 	call InitJoypad
 	call InitAutomata
 	call InitRender
 	call InitEdit
+
+	; load bg and obj palette [0=black, 1=dark gray, 2=light gray, 3=white]
+	ld a, %11100100
+	ldh [rBGP], a
+	ldh [rOBP0], a
 	
 	; enable h-blank interrupt in lcd stat
 	ld a, STATF_MODE00
 	ld [rSTAT], a
-
-	; enable screen but don't display anything yet
-	ld a, LCDCF_ON
-	ldh [rLCDC], a
 	
 	ClearAndEnableInterrupts
 

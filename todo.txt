@@ -1,4 +1,3 @@
 - music
 - title screen
-- crossfade nintendo boot logo into nintendo logo in automata
 - cartridge!
