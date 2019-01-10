@@ -88,16 +88,16 @@ Start:
 	xor a
 	ldh [rIF], a
 
-IF !DEF(DIRECT_TO_GAME)
-	; skip if running on GBC or GBA
-	ld a, b
-	cp a, $11
-	jr z, .skip
-
-	call ScrollNintendoOut
-
-.skip
-ENDC
+;IF !DEF(DIRECT_TO_GAME)
+;	; skip if running on GBC or GBA
+;	ld a, b
+;	cp a, $11
+;	jr z, .skip
+;
+;	call ScrollNintendoOut
+;
+;.skip
+;ENDC
 	
 	; disable screen
 	halt
