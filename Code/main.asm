@@ -7,8 +7,10 @@ EMPTY_BG_TILE EQU 17
 ANIMATE EQU %01
 STEP    EQU %10
 
+EXPORT GameboyType
 SECTION "Main Memory", HRAM
 Control: ds 1
+GameboyType: ds 1
 
 SECTION "Header", ROM0[$100]
 EntryPoint:
@@ -18,58 +20,10 @@ REPT $150 - $104
     db 0
 ENDR
 
-SECTION "Jingle", ROM0
-Jingle:
-
-	; load initial frequency into HL
-FREQUENCY = 330
-	ld hl, PULSE_FREQUENCY
-
-	; load step to be added to frequency in DE
-	; based on if a != 0 or not
-	or a
-	jr z, .up
-.down
-	ld de, 100
-	jr .do
-.up
-	ld de, -100	
-
-.do
-	; load note count
-	ld b, 3
-.loop
-
-	; play pulse channel 1 with frequency set in HL
-	xor a
-	ldh [rNR10], a ; sweep 
-	ld a, (%01 << 6) + 30
-	ldh [rNR11], a ; pattern + sound length
-	ld a, $F1
-	ldh [rNR12], a ; init volume + envelope sweep
-	ld a, l
-	ldh [rNR13], a
-	ld a, h
-	or a, SOUND_START
-	ldh [rNR14], a
-	
-	; add DE to HL frequency
-	add hl, de
-	
-	; wait ~166ms
-	ld c, 6
-.delay
-	HaltAndClearInterrupts
-	dec c
-	jr nz, .delay
-	
-	; repeat a few times
-	dec b
-	ret z
-	jr .loop
-
 SECTION "Main", ROM0[$150]
-Start:	
+Start:
+	ldh [GameboyType], a
+
 	; enable sound
 	ld a, $80
 	ld [rNR52], a ; sound ON
@@ -233,3 +187,53 @@ FREQUENCY = 220
 	ldh [rLCDC], a
 
 	jr .mainloop
+	
+SECTION "Jingle", ROM0
+Jingle:
+
+	; load initial frequency into HL
+FREQUENCY = 330
+	ld hl, PULSE_FREQUENCY
+
+	; load step to be added to frequency in DE
+	; based on if a != 0 or not
+	or a
+	jr z, .up
+.down
+	ld de, 100
+	jr .do
+.up
+	ld de, -100	
+
+.do
+	; load note count
+	ld b, 3
+.loop
+
+	; play pulse channel 1 with frequency set in HL
+	xor a
+	ldh [rNR10], a ; sweep 
+	ld a, (%01 << 6) + 30
+	ldh [rNR11], a ; pattern + sound length
+	ld a, $F1
+	ldh [rNR12], a ; init volume + envelope sweep
+	ld a, l
+	ldh [rNR13], a
+	ld a, h
+	or a, SOUND_START
+	ldh [rNR14], a
+	
+	; add DE to HL frequency
+	add hl, de
+	
+	; wait ~166ms
+	ld c, 6
+.delay
+	HaltAndClearInterrupts
+	dec c
+	jr nz, .delay
+	
+	; repeat a few times
+	dec b
+	ret z
+	jr .loop

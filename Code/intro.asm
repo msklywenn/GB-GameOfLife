@@ -38,6 +38,11 @@ GraphicB:
 	ret
 
 Intro:
+	; skip fade-out on gameboy color
+	ldh a, [GameboyType]
+	cp a, $11
+	jr z, .setBGPalette
+
 	; fade bg palette
 	ld b, 8
 .fadeDelay0
@@ -64,6 +69,7 @@ Intro:
 	jr nz, .fadeDelay2
 
 	; load bg and obj palette [0=black, 1=dark gray, 2=light gray, 3=white]
+.setBGPalette
 	ld a, %11100100
 	ldh [rBGP], a
 
@@ -80,21 +86,43 @@ Intro:
 	cp $34
 	jr nz, .logoloop
 
-	; move all map indices to block 1
+	; display logo in map 0 from block 1
 	ld hl, _SCRN0
-	ld bc, 18 * 32
-.copy
+	ld d, $80
+	ld bc, 8 * 32 + 4
+	call VideoMemorySet
+
+	ld b, 12
+.logoLine1
 	ldh a, [rSTAT]
 	and a, STATF_BUSY
-	jr nz, .copy
-	ld a, [hl]
-	add a, $80
-	ld [hl+], a	
-	dec bc
-	ld a, b
-	or c
-	jr nz, .copy
+	jr nz, .logoLine1
+	inc d
+	ld [hl], d
+	inc hl
+	dec b
+	jr nz, .logoLine1
+
+	ld d, $80
+	ld bc, 20
+	call VideoMemorySet
 	
+	ld b, 12
+	ld d, $8C
+.logoLine2
+	ldh a, [rSTAT]
+	and a, STATF_BUSY
+	jr nz, .logoLine2
+	inc d
+	ld [hl], d
+	inc hl
+	dec b
+	jr nz, .logoLine2
+
+	ld d, $80
+	ld bc, 8 * 32 + 28
+	call VideoMemorySet
+
 	; display nintendo logo from new map
 	ld a, LCDCF_ON | LCDCF_BGON | LCDCF_BG9800
 	ldh [rLCDC], a
