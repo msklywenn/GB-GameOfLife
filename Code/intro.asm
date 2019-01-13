@@ -195,5 +195,7 @@ ENDR
 	
 	dec b
 	jp nz, .loopX
+	
+	call Jingle
 
 	ret

@@ -187,7 +187,8 @@ FREQUENCY = 220
 	ldh [rLCDC], a
 
 	jr .mainloop
-	
+
+EXPORT Jingle	
 SECTION "Jingle", ROM0
 Jingle:
 
